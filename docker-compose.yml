@@ -1,0 +1,53 @@
+name: harbor-support
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: serviceops
+      POSTGRES_USER: serviceops
+      POSTGRES_PASSWORD: serviceops
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serviceops -d serviceops"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - serviceops-postgres:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  api:
+    build: ./apps/api
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
+      WEB_ORIGIN: http://localhost:3000
+      AGENT_MODE: ${AGENT_MODE:-deterministic}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      SENSITIVE_TRACING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    ports:
+      - "8000:8000"
+
+  web:
+    build:
+      context: ./demo
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+volumes:
+  serviceops-postgres:

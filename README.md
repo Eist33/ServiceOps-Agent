@@ -1,0 +1,113 @@
+# Harbor Support · 企业客服与工单执行 Agent MVP
+
+Harbor Support 是一个可运行、可测试、可重复演示的电商售后客服 Agent。它用单 Agent 理解用户诉求，通过结构化工具调用完成政策问答、订单与物流查询、物流异常建单，以及需要用户明确确认的退款闭环。
+
+业务事实与安全规则不放在 Prompt 或前端：订单归属、物流异常、可退金额、状态机、审批和幂等全部由 FastAPI 领域服务与 PostgreSQL 事务执行。
+
+## 核心能力
+
+- 政策问答：检索有效知识条款，返回文章、版本、条款与相关度；证据不足时拒绝猜测。
+- 订单与物流：服务端解析当前用户并校验订单归属；物流异常由 36 小时停滞规则判断。
+- 异常建单：幂等创建 `SHIPPING` 工单，关联订单、会话与物流证据。
+- 退款确认：Agent 只能创建待确认申请；确认接口重新校验身份、金额、状态与幂等键。
+- 结构化事件：前端只消费 `tool_started`、`tool_completed`、`approval_required` 等事件，不解析自然语言中的业务状态。
+- 持久化审计：保存对话、消息、工单、退款、工具调用、耗时、错误与关联 ID。
+- 双运行模式：默认确定性模式无需 API Key；配置后可切换 OpenAI Agents SDK 单 Agent 模式。
+
+## 工程结构
+
+```text
+apps/api/                 FastAPI 模块化单体
+  alembic/                PostgreSQL/pgvector 迁移
+  src/serviceops/
+    identity/             当前用户与资源归属
+    conversations/        会话、消息与状态投影
+    knowledge/            知识检索、版本与来源
+    orders/ shipping/     订单与确定性物流异常
+    tickets/ refunds/     状态机、审批与幂等
+    agent/                 确定性运行器与 Agents SDK 运行器
+    audit/                 工具调用脱敏审计
+demo/                     Vinext/React 客户端（Sites 与 Docker 兼容）
+docs/                     产品、技术、流程与交付文档
+docker-compose.yml        web、api、PostgreSQL/pgvector
+```
+
+详细边界见 [架构说明](docs/architecture.md)，演示步骤见 [演示脚本](docs/demo-script.md)。
+
+## 一键启动
+
+环境要求：Docker Desktop 与 Docker Compose。
+
+```bash
+docker compose up --build
+```
+
+启动后访问：Web <http://localhost:3000>，API 文档 <http://localhost:8000/docs>，健康检查 <http://localhost:8000/health>。
+
+默认使用不依赖模型服务的确定性 Agent 模式，四个核心场景可以直接演示。
+
+### 启用 OpenAI Agents SDK 模式
+
+复制根目录 `.env.example` 为 `.env`，填写服务端密钥：
+
+```env
+AGENT_MODE=openai
+OPENAI_API_KEY=your-server-side-key
+OPENAI_MODEL=gpt-5.4-mini
+```
+
+密钥只传给 API 容器，不进入浏览器、镜像或工具调用日志。未配置密钥时系统自动使用确定性模式。
+
+## 本地开发
+
+后端：
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e ".\apps\api[test]"
+$env:DATABASE_URL = "sqlite:///./serviceops.db"
+.\.venv\Scripts\python.exe -m uvicorn serviceops.main:app --app-dir apps/api/src --reload
+```
+
+前端：
+
+```powershell
+cd demo
+pnpm install --frozen-lockfile
+$env:NEXT_PUBLIC_API_URL = "http://localhost:8000"
+pnpm run dev -- --host 127.0.0.1 --port 3000
+```
+
+本地测试身份通过不透明的 `X-Demo-Session` 解析，前端不能传入可信 `user_id`。种子账号“林沐”的演示令牌只用于本地环境。
+
+## 测试与质量门禁
+
+```powershell
+.\.venv\Scripts\ruff.exe check apps/api
+.\.venv\Scripts\pytest.exe apps/api/tests
+
+cd demo
+pnpm run lint
+pnpm run build
+pnpm run test:e2e
+```
+
+测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、API 契约、结构化事件、刷新恢复与四个浏览器端到端场景。Playwright 使用隔离的 SQLite 测试 API；正式 Docker 环境使用 PostgreSQL/pgvector。
+
+## 演示数据重置
+
+非生产环境可重置可变业务数据：
+
+```bash
+curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu-session"
+```
+
+重置会清理会话、消息、工单、退款、幂等与工具审计，并恢复演示订单的可退金额；客户、知识库和物流固定数据保持不变。生产环境会拒绝该接口。
+
+## 已知限制
+
+- 订单、物流和支付均为模拟适配器，不会调用真实平台或产生真实资金动作。
+- 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
+- MVP 使用小型知识集和轻量关键词召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待接入模型服务后启用。
+- 暂不包含人工接管、工单分派、SLA、运营看板、多渠道、多 Agent、消息队列或 Elasticsearch。
+
