@@ -94,6 +94,14 @@ pnpm run test:e2e
 
 测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、API 契约、结构化事件、刷新恢复与四个浏览器端到端场景。Playwright 使用隔离的 SQLite 测试 API；正式 Docker 环境使用 PostgreSQL/pgvector。
 
+知识检索另有一组可重复的中文口语化评测，覆盖全部 12 个政策条款，每个条款至少 2 条可回答样本，并包含 6 条知识库外拒答样本：
+
+```bash
+docker compose exec -T api python -m serviceops.cli evaluate-knowledge
+```
+
+评测门禁要求可回答问题条款命中率不低于 95%，知识库外问题误答率为 0。当前固定评测集为 24/24 条款命中、6/6 正确拒答；CLI 以 JSON 输出详细指标和失败样本，未通过时返回非零退出码。
+
 ## 演示数据重置
 
 非生产环境可重置可变业务数据：
@@ -108,6 +116,5 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 
 - 订单、物流和支付均为模拟适配器，不会调用真实平台或产生真实资金动作。
 - 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
-- MVP 使用小型知识集和轻量关键词召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待接入模型服务后启用。
+- MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
 - 暂不包含人工接管、工单分派、SLA、运营看板、多渠道、多 Agent、消息队列或 Elasticsearch。
-
