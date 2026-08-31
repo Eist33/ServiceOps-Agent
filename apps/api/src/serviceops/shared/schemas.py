@@ -37,6 +37,32 @@ class MessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
 
 
+class KnowledgePublishRequest(BaseModel):
+    title: str = Field(min_length=2, max_length=200)
+    version: str = Field(min_length=2, max_length=40)
+    section: str = Field(min_length=2, max_length=80)
+    content: str = Field(min_length=4, max_length=5000)
+    keywords: list[str] = Field(min_length=1, max_length=20)
+    source_uri: str = Field(min_length=4, max_length=500)
+
+
+class KnowledgeArticleResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    title: str
+    version: str
+    section: str
+    content: str
+    keywords: list[str]
+    source_uri: str
+    content_hash: str
+    active: bool
+    valid_from: datetime
+    valid_until: datetime | None
+    created_at: datetime
+
+
 class TicketCreateRequest(BaseModel):
     conversation_id: str
     order_number: str

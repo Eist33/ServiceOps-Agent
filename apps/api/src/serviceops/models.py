@@ -76,6 +76,16 @@ class Customer(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class Operator(Base):
+    __tablename__ = "operators"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    name: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(40), default="KNOWLEDGE_MANAGER")
+    session_token: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Order(Base):
     __tablename__ = "orders"
 
@@ -107,6 +117,14 @@ class ShippingEvent(Base):
 
 class KnowledgeArticle(Base):
     __tablename__ = "knowledge_articles"
+    __table_args__ = (
+        UniqueConstraint(
+            "title",
+            "version",
+            "section",
+            name="uq_knowledge_article_version_section",
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     title: Mapped[str] = mapped_column(String(200))

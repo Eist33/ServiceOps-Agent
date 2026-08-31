@@ -18,14 +18,21 @@ from serviceops.conversations.service import (
     create_conversation,
 )
 from serviceops.database import Base, engine, get_db
-from serviceops.identity.service import current_customer
-from serviceops.models import Customer
+from serviceops.identity.service import current_customer, current_operator
+from serviceops.knowledge.management import (
+    deactivate_knowledge_article,
+    list_knowledge_articles,
+    publish_knowledge_article,
+)
+from serviceops.models import Customer, Operator
 from serviceops.orders.service import get_order
 from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
 from serviceops.shared.schemas import (
     ConversationCreateResponse,
+    KnowledgeArticleResponse,
+    KnowledgePublishRequest,
     MessageRequest,
     OrderResponse,
     RefundResponse,
@@ -108,6 +115,36 @@ def create_app() -> FastAPI:
     @app.get("/api/me")
     def me(customer: Customer = Depends(current_customer)):
         return {"id": customer.id, "name": customer.name}
+
+    @app.get("/api/ops/me")
+    def ops_me(operator: Operator = Depends(current_operator)):
+        return {"id": operator.id, "name": operator.name, "role": operator.role}
+
+    @app.get("/api/ops/knowledge", response_model=list[KnowledgeArticleResponse])
+    def knowledge_index(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return list_knowledge_articles(db)
+
+    @app.post("/api/ops/knowledge", response_model=KnowledgeArticleResponse)
+    def publish_knowledge(
+        body: KnowledgePublishRequest,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return publish_knowledge_article(db, body)
+
+    @app.post(
+        "/api/ops/knowledge/{article_id}/deactivate",
+        response_model=KnowledgeArticleResponse,
+    )
+    def deactivate_knowledge(
+        article_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return deactivate_knowledge_article(db, article_id)
 
     @app.post("/api/demo/reset")
     def reset_demo(

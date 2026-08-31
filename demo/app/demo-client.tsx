@@ -1,8 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import Link from 'next/link';
 import {
   Bot,
+  BookOpenText,
   Box,
   Check,
   CheckCircle2,
@@ -27,7 +29,7 @@ import {
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -579,6 +581,13 @@ function Header() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <Link
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          href="/knowledge"
+        >
+          <BookOpenText />
+          <span className="hidden sm:inline">知识运营</span>
+        </Link>
         <Badge
           className="hidden bg-emerald-50 text-emerald-700 sm:inline-flex"
           variant="secondary"

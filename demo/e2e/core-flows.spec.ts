@@ -77,3 +77,22 @@ test('退款必须明确确认后才执行', async ({ page }) => {
   await expect(page.getByText(/退款已模拟完成/)).toBeVisible();
   await expect(page.getByText('已退款')).toBeVisible();
 });
+
+test('运营人员发布知识新版本并替换当前条款', async ({ page }) => {
+  await page.goto('/knowledge');
+  await expect(page.getByRole('heading', { name: '知识条款与版本' })).toBeVisible();
+  await expect(page.getByText('12').first()).toBeVisible();
+
+  await page.getByLabel('版本').fill('2026-09');
+  await page.getByLabel('条款号').fill('第 2.1 条');
+  await page.getByLabel('关键词').fill('退货 无理由 10天 签收');
+  await page
+    .getByLabel('条款内容')
+    .fill('大多数商品支持签收后 10 天内无理由退货，商品与赠品需保持完整。');
+  await page.getByLabel('来源地址').fill('kb://after-sales/2026-09/第-2.1-条');
+  await page.getByRole('button', { name: '发布并立即生效' }).click();
+
+  await expect(page.getByText(/第 2.1 条 · 2026-09 已发布/)).toBeVisible();
+  await expect(page.getByRole('cell', { name: '2026-09' })).toBeVisible();
+  await expect(page.getByText('历史版本').first()).toBeVisible();
+});

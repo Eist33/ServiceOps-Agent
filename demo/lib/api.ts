@@ -1,6 +1,7 @@
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 export const DEMO_SESSION = 'demo-linmu-session';
+export const OPS_SESSION = 'demo-knowledge-ops-session';
 
 export type AgentEvent = {
   type:
@@ -88,6 +89,30 @@ export type ShippingData = {
   nodes: Array<{ location: string; description: string; occurred_at: string }>;
 };
 
+export type KnowledgeArticleData = {
+  id: string;
+  title: string;
+  version: string;
+  section: string;
+  content: string;
+  keywords: string[];
+  source_uri: string;
+  content_hash: string;
+  active: boolean;
+  valid_from: string;
+  valid_until?: string;
+  created_at: string;
+};
+
+export type KnowledgePublishData = {
+  title: string;
+  version: string;
+  section: string;
+  content: string;
+  keywords: string[];
+  source_uri: string;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
@@ -96,6 +121,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers,
   });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? `请求失败（${response.status}）`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('X-Ops-Session', OPS_SESSION);
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
       error?: { message?: string };
@@ -185,5 +224,20 @@ export const confirmRefund = (refundId: string, key: string) =>
 export const cancelRefund = (refundId: string) =>
   request<ConversationState['refunds'][number]>(
     `/api/refund-requests/${refundId}/cancel`,
+    { method: 'POST' },
+  );
+
+export const listKnowledgeArticles = () =>
+  opsRequest<KnowledgeArticleData[]>('/api/ops/knowledge');
+
+export const publishKnowledgeArticle = (body: KnowledgePublishData) =>
+  opsRequest<KnowledgeArticleData>('/api/ops/knowledge', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+
+export const deactivateKnowledgeArticle = (articleId: string) =>
+  opsRequest<KnowledgeArticleData>(
+    `/api/ops/knowledge/${articleId}/deactivate`,
     { method: 'POST' },
   );

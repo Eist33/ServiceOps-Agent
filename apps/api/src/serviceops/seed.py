@@ -11,6 +11,7 @@ from serviceops.models import (
     IdempotencyRecord,
     KnowledgeArticle,
     Message,
+    Operator,
     Order,
     RefundRequest,
     ShippingEvent,
@@ -21,6 +22,7 @@ from serviceops.models import (
 
 DEMO_SESSION_TOKEN = "demo-linmu-session"
 SECONDARY_SESSION_TOKEN = "demo-other-session"
+OPS_SESSION_TOKEN = "demo-knowledge-ops-session"
 
 
 POLICIES = [
@@ -59,9 +61,37 @@ POLICIES = [
 ]
 
 
+def _add_seed_knowledge(db: Session) -> None:
+    for section, keywords, content in POLICIES:
+        db.add(
+            KnowledgeArticle(
+                title="平台退换货规则",
+                version="2026-07",
+                section=section,
+                content=content,
+                keywords=keywords.split(),
+                embedding=None,
+                source_uri=f"kb://after-sales/2026-07/{section.replace(' ', '-')}",
+                content_hash=hashlib.sha256(content.encode()).hexdigest(),
+                active=True,
+                valid_from=datetime(2026, 7, 1, tzinfo=UTC),
+            )
+        )
+
+
 def seed_database(db: Session) -> None:
+    operator = db.scalar(select(Operator).where(Operator.session_token == OPS_SESSION_TOKEN))
+    if not operator:
+        db.add(
+            Operator(
+                name="许知夏",
+                role="KNOWLEDGE_MANAGER",
+                session_token=OPS_SESSION_TOKEN,
+            )
+        )
     existing = db.scalar(select(Customer).where(Customer.session_token == DEMO_SESSION_TOKEN))
     if existing:
+        db.commit()
         return
     customer = Customer(name="林沐", session_token=DEMO_SESSION_TOKEN)
     other = Customer(name="周远", session_token=SECONDARY_SESSION_TOKEN)
@@ -109,26 +139,12 @@ def seed_database(db: Session) -> None:
             ),
         ]
     )
-    for section, keywords, content in POLICIES:
-        db.add(
-            KnowledgeArticle(
-                title="平台退换货规则",
-                version="2026-07",
-                section=section,
-                content=content,
-                keywords=keywords.split(),
-                embedding=None,
-                source_uri=f"kb://after-sales/2026-07/{section.replace(' ', '-')}",
-                content_hash=hashlib.sha256(content.encode()).hexdigest(),
-                active=True,
-                valid_from=datetime(2026, 7, 1, tzinfo=UTC),
-            )
-        )
+    _add_seed_knowledge(db)
     db.commit()
 
 
 def reset_demo_state(db: Session) -> None:
-    """Reset mutable demo state without changing identity, knowledge or shipping fixtures."""
+    """Reset mutable demo state and restore fixed knowledge fixtures."""
     for model in [
         IdempotencyRecord,
         ToolInvocation,
@@ -139,6 +155,8 @@ def reset_demo_state(db: Session) -> None:
         Conversation,
     ]:
         db.execute(delete(model))
+    db.execute(delete(KnowledgeArticle))
+    _add_seed_knowledge(db)
     order = db.scalar(select(Order).where(Order.order_number == "ORD-20260828-1042"))
     if order:
         order.refundable_amount = order.paid_amount

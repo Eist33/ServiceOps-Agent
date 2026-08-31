@@ -13,6 +13,7 @@ Harbor Support 是一个可运行、可测试、可重复演示的电商售后�
 - 退款确认：Agent 只能创建待确认申请；确认接口重新校验身份、金额、状态与幂等键。
 - 结构化事件：前端只消费 `tool_started`、`tool_completed`、`approval_required` 等事件，不解析自然语言中的业务状态。
 - 持久化审计：保存对话、消息、工单、退款、工具调用、耗时、错误与关联 ID。
+- 知识运营：独立运营身份可查看条款历史、发布新版本和停用条款；版本变更立即进入客服检索范围。
 - 双运行模式：默认确定性模式无需 API Key；配置后可切换 OpenAI Agents SDK 单 Agent 模式。
 
 ## 工程结构
@@ -111,7 +112,7 @@ docker compose exec -T api python -m serviceops.cli evaluate-knowledge
 curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu-session"
 ```
 
-重置会清理会话、消息、工单、退款、幂等与工具审计，并恢复演示订单的可退金额；客户、知识库和物流固定数据保持不变。生产环境会拒绝该接口。
+重置会清理会话、消息、工单、退款、幂等与工具审计，恢复演示订单的可退金额，并把知识库恢复为固定的 `2026-07` 演示版本；客户和物流固定数据保持不变。生产环境会拒绝该接口。
 
 ## 已知限制
 
@@ -119,4 +120,6 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 - 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
 - MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
 - 当前人工接管采用规则化支持组自动分派，尚未接入真实坐席账号、排班和实时人工聊天。
+- 当前活动工单幂等范围跨会话，同一用户、订单和异常类型在新对话中仍会复用首张活动工单；下一版本将调整为符合对话预期的建单策略。
+- 人工接管建立后目前不能由用户取消或退回 Agent；下一版本将补充撤销状态转换、接口与操作记录。
 - 暂不包含运营看板、多渠道、多 Agent、消息队列或 Elasticsearch。
