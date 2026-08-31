@@ -454,14 +454,28 @@ export default function DemoClient() {
                 </p>
               </div>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy}
-              onClick={() => void startFreshConversation()}
-            >
-              <MessageSquareText /> 新对话
-            </Button>
+            <div className="flex items-center gap-2">
+              {activeTicket && (
+                <Button
+                  className="xl:hidden"
+                  variant="secondary"
+                  size="sm"
+                  aria-label="查看工单详情"
+                  onClick={() => setTicketDialogOpen(true)}
+                >
+                  <TicketCheck />
+                  <span className="hidden sm:inline">工单详情</span>
+                </Button>
+              )}
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={busy}
+                onClick={() => void startFreshConversation()}
+              >
+                <MessageSquareText /> 新对话
+              </Button>
+            </div>
           </div>
           <div className="flex gap-2 overflow-x-auto border-b bg-white px-4 py-2.5 lg:hidden">
             {scenarios.map((scenario) => (

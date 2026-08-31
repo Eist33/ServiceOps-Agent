@@ -41,6 +41,7 @@ test('物流异常创建幂等工单', async ({ page }) => {
 });
 
 test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
   await page
     .getByRole('button', { name: /物流异常建单/ })
     .first()
