@@ -5,7 +5,9 @@ test.beforeEach(async ({ page, request }) => {
     headers: { 'X-Demo-Session': 'demo-linmu-session' },
   });
   await page.goto('/');
-  await expect(page.getByText('售后服务助手')).toBeVisible();
+  await expect(
+    page.getByRole('heading', { name: '售后服务助手', exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('正在连接业务服务…')).toBeHidden();
 });
 

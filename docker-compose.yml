@@ -22,7 +22,7 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
-      WEB_ORIGIN: http://localhost:3000
+      WEB_ORIGIN: http://localhost:3000,http://127.0.0.1:3000
       AGENT_MODE: ${AGENT_MODE:-deterministic}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}

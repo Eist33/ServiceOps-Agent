@@ -1,0 +1,10 @@
+node_modules
+.vinext
+dist
+.pnpm-store
+test-results
+playwright-report
+.git
+*.log
+.env
+.env.*
