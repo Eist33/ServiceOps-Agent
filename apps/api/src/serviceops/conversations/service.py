@@ -1,4 +1,4 @@
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
@@ -49,10 +49,23 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             .order_by(Message.created_at.asc())
         )
     )
+    invocations = list(
+        db.scalars(
+            select(ToolInvocation)
+            .where(ToolInvocation.conversation_id == conversation.id)
+            .order_by(ToolInvocation.created_at.asc())
+        )
+    )
+    invoked_ticket_ids = {
+        invocation.ticket_id for invocation in invocations if invocation.ticket_id is not None
+    }
+    ticket_scope = Ticket.conversation_id == conversation.id
+    if invoked_ticket_ids:
+        ticket_scope = or_(ticket_scope, Ticket.id.in_(invoked_ticket_ids))
     tickets = list(
         db.scalars(
             select(Ticket)
-            .where(Ticket.conversation_id == conversation.id)
+            .where(Ticket.customer_id == customer.id, ticket_scope)
             .order_by(Ticket.created_at.desc())
         )
     )
@@ -67,13 +80,6 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
         )
         if ticket_ids
         else []
-    )
-    invocations = list(
-        db.scalars(
-            select(ToolInvocation)
-            .where(ToolInvocation.conversation_id == conversation.id)
-            .order_by(ToolInvocation.created_at.asc())
-        )
     )
     return {
         "conversation": {"id": conversation.id, "updated_at": conversation.updated_at.isoformat()},

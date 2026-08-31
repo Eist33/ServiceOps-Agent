@@ -42,6 +42,31 @@ def test_ticket_flow_changes_business_state(client):
     assert state["tickets"][0]["sla_status"] == "ON_TRACK"
 
 
+def test_reused_ticket_is_projected_into_new_conversation(client):
+    first_conversation_id = new_conversation(client)
+    run_agent(
+        client,
+        first_conversation_id,
+        "ORD-20260828-1042 物流没更新，帮我催一下",
+    )
+    first_ticket = client.get(
+        f"/api/conversations/{first_conversation_id}"
+    ).json()["tickets"][0]
+
+    second_conversation_id = new_conversation(client)
+    run_agent(
+        client,
+        second_conversation_id,
+        "ORD-20260828-1042 物流没更新，帮我催一下",
+    )
+    second_state = client.get(f"/api/conversations/{second_conversation_id}").json()
+
+    assert len(second_state["tickets"]) == 1
+    assert second_state["tickets"][0]["id"] == first_ticket["id"]
+    assert second_state["tickets"][0]["ticket_number"] == first_ticket["ticket_number"]
+    assert second_state["tool_invocations"][-1]["tool_name"] == "create_ticket"
+
+
 def test_ticket_can_handoff_to_human_support_group(client, other_client):
     conversation_id = new_conversation(client)
     run_agent(client, conversation_id, "ORD-20260828-1042 物流没更新，帮我催一下")

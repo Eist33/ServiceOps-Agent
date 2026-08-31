@@ -38,6 +38,15 @@ test('物流异常创建幂等工单', async ({ page }) => {
   await expect(page.getByText(/已调用 create_ticket/)).toBeVisible();
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await expect(page.getByText(/TK-/).last()).toBeVisible();
+
+  await page
+    .getByRole('button', { name: /物流异常建单/ })
+    .first()
+    .click();
+  await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
+  const businessContext = page.getByRole('complementary').last();
+  await expect(businessContext.getByText(/TK-/)).toBeVisible();
+  await expect(businessContext.getByText('处理中')).toBeVisible();
 });
 
 test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
