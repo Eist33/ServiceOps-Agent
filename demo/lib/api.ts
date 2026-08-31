@@ -21,6 +21,25 @@ export type AgentEvent = {
   payload: Record<string, unknown>;
 };
 
+export type TicketData = {
+  id: string;
+  ticket_number: string;
+  order_id: string;
+  conversation_id: string;
+  ticket_type: string;
+  status: string;
+  priority: string;
+  handoff_status: string;
+  assignee_name?: string;
+  handoff_requested_at?: string;
+  assigned_at?: string;
+  sla_due_at: string;
+  sla_status: string;
+  sla_remaining_minutes: number;
+  reason: string;
+  created_at: string;
+};
+
 export type ConversationState = {
   conversation: { id: string; updated_at: string };
   messages: Array<{
@@ -29,15 +48,7 @@ export type ConversationState = {
     content: string;
     created_at: string;
   }>;
-  tickets: Array<{
-    id: string;
-    ticket_number: string;
-    order_id: string;
-    ticket_type: string;
-    status: string;
-    reason: string;
-    created_at: string;
-  }>;
+  tickets: TicketData[];
   refunds: Array<{
     id: string;
     refund_number: string;
@@ -157,6 +168,12 @@ export const createShippingTicket = (
         reason: '物流长时间未更新',
       }),
     },
+  );
+
+export const handoffTicket = (ticketId: string) =>
+  request<TicketData & { events: unknown[] }>(
+    `/api/tickets/${ticketId}/handoff`,
+    { method: 'POST' },
   );
 
 export const confirmRefund = (refundId: string, key: string) =>

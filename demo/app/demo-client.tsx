@@ -21,6 +21,7 @@ import {
   Sparkles,
   TicketCheck,
   Truck,
+  UserRoundCheck,
   X,
 } from 'lucide-react';
 
@@ -47,6 +48,7 @@ import {
   createShippingTicket,
   getOrder,
   getShipping,
+  handoffTicket,
   loadConversation,
   sendMessage,
 } from '@/lib/api';
@@ -153,6 +155,7 @@ export default function DemoClient() {
   const [busy, setBusy] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
+  const [handoffBusy, setHandoffBusy] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -398,6 +401,29 @@ export default function DemoClient() {
     }
   }
 
+  async function transferTicketToHuman(ticketId: string) {
+    if (handoffBusy) return;
+    setHandoffBusy(true);
+    setError('');
+    try {
+      const ticket = await handoffTicket(ticketId);
+      await refreshState(conversationId);
+      setItems((current) => [
+        ...current,
+        {
+          id: `handoff-${ticket.id}`,
+          kind: 'message',
+          role: 'agent',
+          text: `工单 ${ticket.ticket_number} 已转交 ${ticket.assignee_name}，将在 SLA 时限内继续处理。`,
+        },
+      ]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '转人工失败');
+    } finally {
+      setHandoffBusy(false);
+    }
+  }
+
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
   const currentScenario = useMemo(
@@ -517,6 +543,8 @@ export default function DemoClient() {
         open={ticketDialogOpen}
         onOpenChange={setTicketDialogOpen}
         ticket={activeTicket}
+        busy={handoffBusy}
+        onHandoff={transferTicketToHuman}
       />
     </main>
   );
@@ -532,7 +560,7 @@ function Header() {
         <div>
           <p className="text-sm font-semibold">Harbor Support</p>
           <p className="text-[11px] text-muted-foreground">
-            企业客服 Agent · MVP 环境
+            企业客服 Agent · 运营增强环境
           </p>
         </div>
       </div>
@@ -875,14 +903,34 @@ function ContextPanel({
           <StatusBadge status={ticket?.status ?? 'NONE'} />
         </div>
         {ticket && (
-          <Button
-            className="mt-3 w-full"
-            size="sm"
-            variant="outline"
-            onClick={onOpenTicket}
-          >
-            查看工单详情
-          </Button>
+          <>
+            <dl className="mt-3 grid grid-cols-2 gap-2 border-t border-emerald-100 pt-3 text-[11px]">
+              <div>
+                <dt className="text-muted-foreground">优先级</dt>
+                <dd className="mt-1 font-semibold">{ticket.priority}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">SLA</dt>
+                <dd className="mt-1 font-semibold">
+                  {slaLabel(ticket.sla_status, ticket.sla_remaining_minutes)}
+                </dd>
+              </div>
+              <div className="col-span-2">
+                <dt className="text-muted-foreground">处理队列</dt>
+                <dd className="mt-1 font-semibold">
+                  {ticket.assignee_name ?? 'Agent 自动处理'}
+                </dd>
+              </div>
+            </dl>
+            <Button
+              className="mt-3 w-full"
+              size="sm"
+              variant="outline"
+              onClick={onOpenTicket}
+            >
+              查看工单详情
+            </Button>
+          </>
         )}
       </div>
       <div className="mt-4 rounded-2xl border p-4">
@@ -946,16 +994,30 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function slaLabel(status: string, remainingMinutes: number) {
+  if (status === 'COMPLETED') return '已完成';
+  if (status === 'BREACHED') return '已超时';
+  const hours = Math.floor(remainingMinutes / 60);
+  const minutes = remainingMinutes % 60;
+  const remaining = hours ? `${hours} 小时 ${minutes} 分` : `${minutes} 分钟`;
+  return status === 'DUE_SOON' ? `即将到期 · ${remaining}` : `正常 · ${remaining}`;
+}
+
 function TicketDialog({
   open,
   onOpenChange,
   ticket,
+  busy,
+  onHandoff,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ticket: ConversationState['tickets'][number] | null;
+  busy: boolean;
+  onHandoff: (ticketId: string) => Promise<void>;
 }) {
   const resolved = ticket?.status === 'RESOLVED';
+  const assigned = ticket?.handoff_status === 'ASSIGNED';
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
@@ -987,12 +1049,62 @@ function TicketDialog({
             {ticket?.reason ?? '暂无工单记录'}
             。状态直接来自数据库，不从对话文本推断。
           </p>
+          {ticket && (
+            <dl className="mt-4 grid grid-cols-2 gap-3 border-t pt-4 text-xs">
+              <div>
+                <dt className="text-muted-foreground">优先级</dt>
+                <dd className="mt-1 font-semibold">{ticket.priority}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">SLA 状态</dt>
+                <dd className="mt-1 font-semibold">
+                  {slaLabel(ticket.sla_status, ticket.sla_remaining_minutes)}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">截止时间</dt>
+                <dd className="mt-1 font-medium">
+                  {new Date(ticket.sla_due_at).toLocaleString('zh-CN')}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">处理队列</dt>
+                <dd className="mt-1 font-medium">
+                  {ticket.assignee_name ?? '尚未转人工'}
+                </dd>
+              </div>
+            </dl>
+          )}
         </div>
+        {assigned && (
+          <div className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-3 text-xs text-emerald-800">
+            <UserRoundCheck className="mt-0.5 size-4 shrink-0" />
+            <div>
+              <p className="font-semibold">人工接管已建立</p>
+              <p className="mt-1 leading-5">
+                {ticket?.assignee_name} 已接收工单，自动分派记录和 SLA
+                截止时间已持久化。
+              </p>
+            </div>
+          </div>
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             关闭
           </Button>
-          <Button onClick={() => onOpenChange(false)}>返回对话</Button>
+          {ticket && !resolved && (
+            <Button
+              disabled={busy || assigned}
+              onClick={() => void onHandoff(ticket.id)}
+            >
+              {busy ? (
+                <Loader2 className="animate-spin" />
+              ) : (
+                <UserRoundCheck />
+              )}
+              {assigned ? '已分派人工' : '转人工处理'}
+            </Button>
+          )}
         </DialogFooter>
       </DialogContent>
     </Dialog>

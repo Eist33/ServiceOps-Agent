@@ -1,3 +1,4 @@
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -6,16 +7,24 @@ from sqlalchemy import func, select
 from serviceops.conversations.service import create_conversation
 from serviceops.identity.service import resolve_customer
 from serviceops.models import (
+    HandoffStatus,
     IdempotencyRecord,
     Order,
     RefundRequest,
     RefundStatus,
     Ticket,
+    TicketEvent,
     TicketStatus,
 )
 from serviceops.refunds.service import cancel_refund, confirm_refund, create_refund_request
 from serviceops.shared.errors import ConflictError, ForbiddenError, ValidationError
-from serviceops.tickets.service import create_ticket, get_ticket, transition_ticket
+from serviceops.tickets.service import (
+    create_ticket,
+    get_ticket,
+    request_human_handoff,
+    ticket_sla,
+    transition_ticket,
+)
 
 
 def make_conversation(db, token="demo-linmu-session"):
@@ -55,6 +64,73 @@ def test_ticket_create_is_idempotent(db):
     )
     assert first.id == second.id
     assert db.scalar(select(func.count()).select_from(Ticket)) == 1
+
+
+def test_ticket_gets_priority_and_sla_from_server_policy(db):
+    customer, conversation = make_conversation(db)
+    now = datetime(2026, 8, 31, 8, 0, tzinfo=UTC)
+    ticket = create_ticket(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="物流停滞",
+        now=now,
+    )
+    assert ticket.priority == "P2"
+    assert ticket.sla_due_at.replace(tzinfo=UTC) == now + timedelta(hours=4)
+    assert ticket_sla(ticket, now=now) == ("ON_TRACK", 240)
+    assert ticket_sla(ticket, now=now + timedelta(hours=3, minutes=30)) == (
+        "DUE_SOON",
+        30,
+    )
+    assert ticket_sla(ticket, now=now + timedelta(hours=5)) == ("BREACHED", 0)
+
+
+def test_human_handoff_is_auto_assigned_and_idempotent(db):
+    customer, conversation = make_conversation(db)
+    ticket = create_ticket(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="物流停滞",
+    )
+    first = request_human_handoff(db, customer, ticket.id)
+    second = request_human_handoff(db, customer, ticket.id)
+    assert first.id == second.id
+    assert first.handoff_status == HandoffStatus.ASSIGNED.value
+    assert first.assignee_name == "物流专员组"
+    assert first.handoff_requested_at is not None
+    assert first.assigned_at is not None
+    assert db.scalar(
+        select(func.count())
+        .select_from(TicketEvent)
+        .where(
+            TicketEvent.ticket_id == ticket.id,
+            TicketEvent.action == "HUMAN_HANDOFF_ASSIGNED",
+        )
+    ) == 1
+    transition_ticket(db, first, TicketStatus.RESOLVED.value, actor="test", detail="resolved")
+    assert first.handoff_status == HandoffStatus.COMPLETED.value
+
+
+def test_resolved_ticket_cannot_handoff(db):
+    customer, conversation = make_conversation(db)
+    ticket = create_ticket(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="物流停滞",
+    )
+    transition_ticket(db, ticket, TicketStatus.RESOLVED.value, actor="test", detail="resolved")
+    db.commit()
+    with pytest.raises(ConflictError):
+        request_human_handoff(db, customer, ticket.id)
 
 
 def test_ticket_illegal_transition_is_rejected(db):

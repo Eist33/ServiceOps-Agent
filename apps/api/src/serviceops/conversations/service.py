@@ -11,6 +11,7 @@ from serviceops.models import (
     utcnow,
 )
 from serviceops.shared.errors import ForbiddenError, NotFoundError
+from serviceops.tickets.service import ticket_snapshot
 
 
 def create_conversation(db: Session, customer: Customer) -> Conversation:
@@ -85,18 +86,7 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             }
             for item in messages
         ],
-        "tickets": [
-            {
-                "id": item.id,
-                "ticket_number": item.ticket_number,
-                "order_id": item.order_id,
-                "ticket_type": item.ticket_type,
-                "status": item.status,
-                "reason": item.reason,
-                "created_at": item.created_at.isoformat(),
-            }
-            for item in tickets
-        ],
+        "tickets": [ticket_snapshot(item) for item in tickets],
         "refunds": [
             {
                 "id": item.id,

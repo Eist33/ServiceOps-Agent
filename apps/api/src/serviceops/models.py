@@ -1,5 +1,5 @@
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
@@ -45,6 +45,18 @@ class TicketStatus(StrEnum):
     OPEN = "OPEN"
     WAITING_APPROVAL = "WAITING_APPROVAL"
     RESOLVED = "RESOLVED"
+
+
+class TicketPriority(StrEnum):
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+
+
+class HandoffStatus(StrEnum):
+    BOT_ACTIVE = "BOT_ACTIVE"
+    ASSIGNED = "ASSIGNED"
+    COMPLETED = "COMPLETED"
 
 
 class RefundStatus(StrEnum):
@@ -143,6 +155,18 @@ class Ticket(Base):
     conversation_id: Mapped[str] = mapped_column(ForeignKey("conversations.id"), index=True)
     ticket_type: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(40), default=TicketStatus.OPEN.value)
+    priority: Mapped[str] = mapped_column(String(10), default=TicketPriority.P2.value)
+    handoff_status: Mapped[str] = mapped_column(
+        String(30), default=HandoffStatus.BOT_ACTIVE.value
+    )
+    assignee_name: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    handoff_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    assigned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sla_due_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: utcnow() + timedelta(hours=4)
+    )
     reason: Mapped[str] = mapped_column(String(500))
     evidence: Mapped[dict] = mapped_column(JSON, default=dict)
     version: Mapped[int] = mapped_column(default=1)

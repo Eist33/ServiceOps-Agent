@@ -40,6 +40,20 @@ test('物流异常创建幂等工单', async ({ page }) => {
   await expect(page.getByText(/TK-/).last()).toBeVisible();
 });
 
+test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
+  await page
+    .getByRole('button', { name: /物流异常建单/ })
+    .first()
+    .click();
+  await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
+  await page.getByRole('button', { name: '查看工单详情' }).click();
+  await expect(page.getByText('SLA 状态')).toBeVisible();
+  await page.getByRole('button', { name: '转人工处理' }).click();
+  await expect(page.getByText('人工接管已建立')).toBeVisible();
+  await expect(page.getByText('物流专员组').first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '已分派人工' })).toBeDisabled();
+});
+
 test('退款必须明确确认后才执行', async ({ page }) => {
   await page
     .getByRole('button', { name: /申请退款/ })

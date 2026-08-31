@@ -1,6 +1,6 @@
 # Harbor Support · 企业客服与工单执行 Agent MVP
 
-Harbor Support 是一个可运行、可测试、可重复演示的电商售后客服 Agent。它用单 Agent 理解用户诉求，通过结构化工具调用完成政策问答、订单与物流查询、物流异常建单，以及需要用户明确确认的退款闭环。
+Harbor Support 是一个可运行、可测试、可重复演示的电商售后客服 Agent。它用单 Agent 理解用户诉求，通过结构化工具调用完成政策问答、订单与物流查询、物流异常建单、人工接管与 SLA 跟踪，以及需要用户明确确认的退款闭环。
 
 业务事实与安全规则不放在 Prompt 或前端：订单归属、物流异常、可退金额、状态机、审批和幂等全部由 FastAPI 领域服务与 PostgreSQL 事务执行。
 
@@ -9,6 +9,7 @@ Harbor Support 是一个可运行、可测试、可重复演示的电商售后�
 - 政策问答：检索有效知识条款，返回文章、版本、条款与相关度；证据不足时拒绝猜测。
 - 订单与物流：服务端解析当前用户并校验订单归属；物流异常由 36 小时停滞规则判断。
 - 异常建单：幂等创建 `SHIPPING` 工单，关联订单、会话与物流证据。
+- 人工接管：工单按类型设置 P1/P2/P3 优先级与 SLA，用户发起接管后由服务端自动分派支持组并记录完整时间线。
 - 退款确认：Agent 只能创建待确认申请；确认接口重新校验身份、金额、状态与幂等键。
 - 结构化事件：前端只消费 `tool_started`、`tool_completed`、`approval_required` 等事件，不解析自然语言中的业务状态。
 - 持久化审计：保存对话、消息、工单、退款、工具调用、耗时、错误与关联 ID。
@@ -92,7 +93,7 @@ pnpm run build
 pnpm run test:e2e
 ```
 
-测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、API 契约、结构化事件、刷新恢复与四个浏览器端到端场景。Playwright 使用隔离的 SQLite 测试 API；正式 Docker 环境使用 PostgreSQL/pgvector。
+测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、人工接管、自动分派、SLA、API 契约、结构化事件、刷新恢复与五个浏览器端到端场景。Playwright 使用隔离的 SQLite 测试 API；正式 Docker 环境使用 PostgreSQL/pgvector。
 
 知识检索另有一组可重复的中文口语化评测，覆盖全部 12 个政策条款，每个条款至少 2 条可回答样本，并包含 6 条知识库外拒答样本：
 
@@ -117,4 +118,5 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 - 订单、物流和支付均为模拟适配器，不会调用真实平台或产生真实资金动作。
 - 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
 - MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
-- 暂不包含人工接管、工单分派、SLA、运营看板、多渠道、多 Agent、消息队列或 Elasticsearch。
+- 当前人工接管采用规则化支持组自动分派，尚未接入真实坐席账号、排班和实时人工聊天。
+- 暂不包含运营看板、多渠道、多 Agent、消息队列或 Elasticsearch。

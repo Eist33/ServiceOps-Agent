@@ -38,6 +38,29 @@ def test_ticket_flow_changes_business_state(client):
     assert "business_state_changed" in event_types(events)
     state = client.get(f"/api/conversations/{conversation_id}").json()
     assert state["tickets"][0]["status"] == "OPEN"
+    assert state["tickets"][0]["priority"] == "P2"
+    assert state["tickets"][0]["sla_status"] == "ON_TRACK"
+
+
+def test_ticket_can_handoff_to_human_support_group(client, other_client):
+    conversation_id = new_conversation(client)
+    run_agent(client, conversation_id, "ORD-20260828-1042 物流没更新，帮我催一下")
+    ticket = client.get(f"/api/conversations/{conversation_id}").json()["tickets"][0]
+
+    forbidden = other_client.post(f"/api/tickets/{ticket['id']}/handoff")
+    assert forbidden.status_code == 403
+
+    response = client.post(f"/api/tickets/{ticket['id']}/handoff")
+    assert response.status_code == 200
+    handed_off = response.json()
+    assert handed_off["handoff_status"] == "ASSIGNED"
+    assert handed_off["assignee_name"] == "物流专员组"
+    assert handed_off["sla_due_at"]
+    assert handed_off["events"][-1]["action"] == "HUMAN_HANDOFF_ASSIGNED"
+
+    repeated = client.post(f"/api/tickets/{ticket['id']}/handoff")
+    assert repeated.status_code == 200
+    assert repeated.json()["assigned_at"] == handed_off["assigned_at"]
 
 
 def test_refund_flow_requires_approval(client):

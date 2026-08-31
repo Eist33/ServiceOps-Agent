@@ -34,7 +34,12 @@ from serviceops.shared.schemas import (
     TicketResponse,
 )
 from serviceops.shipping.service import get_shipping_status
-from serviceops.tickets.service import create_ticket, get_ticket, ticket_response
+from serviceops.tickets.service import (
+    create_ticket,
+    get_ticket,
+    request_human_handoff,
+    ticket_response,
+)
 
 
 @asynccontextmanager
@@ -195,6 +200,14 @@ def create_app() -> FastAPI:
         customer: Customer = Depends(current_customer),
     ):
         return ticket_response(db, get_ticket(db, customer, ticket_id))
+
+    @app.post("/api/tickets/{ticket_id}/handoff", response_model=TicketResponse)
+    def handoff_ticket_endpoint(
+        ticket_id: str,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        return ticket_response(db, request_human_handoff(db, customer, ticket_id))
 
     @app.post("/api/refund-requests/{refund_id}/confirm", response_model=RefundResponse)
     def confirm_refund_endpoint(

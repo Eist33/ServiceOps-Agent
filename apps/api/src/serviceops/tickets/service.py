@@ -1,5 +1,6 @@
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -7,19 +8,28 @@ from sqlalchemy.orm import Session
 from serviceops.models import (
     Conversation,
     Customer,
+    HandoffStatus,
     Ticket,
     TicketEvent,
+    TicketPriority,
     TicketStatus,
     utcnow,
 )
 from serviceops.orders.service import get_order
-from serviceops.shared.errors import ConflictError, ForbiddenError, NotFoundError
+from serviceops.shared.errors import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from serviceops.shared.schemas import TicketResponse
 
 ALLOWED_TICKET_TRANSITIONS = {
     TicketStatus.OPEN.value: {TicketStatus.WAITING_APPROVAL.value, TicketStatus.RESOLVED.value},
     TicketStatus.WAITING_APPROVAL.value: {TicketStatus.RESOLVED.value},
     TicketStatus.RESOLVED.value: set(),
+}
+
+TICKET_ROUTING = {
+    "SHIPPING": (TicketPriority.P2.value, 4, "物流专员组"),
+    "ORDER": (TicketPriority.P2.value, 4, "订单支持组"),
+    "REFUND": (TicketPriority.P1.value, 1, "退款审核组"),
+    "OTHER": (TicketPriority.P3.value, 8, "综合支持组"),
 }
 
 
@@ -37,6 +47,8 @@ def transition_ticket(
             f"工单不能从 {ticket.status} 转换为 {target}",
         )
     ticket.status = target
+    if target == TicketStatus.RESOLVED.value and ticket.handoff_status == HandoffStatus.ASSIGNED:
+        ticket.handoff_status = HandoffStatus.COMPLETED.value
     ticket.version += 1
     ticket.updated_at = utcnow()
     db.add(TicketEvent(ticket_id=ticket.id, action=f"STATUS_{target}", detail=detail, actor=actor))
@@ -52,7 +64,10 @@ def create_ticket(
     ticket_type: str,
     reason: str,
     evidence: dict | None = None,
+    now: datetime | None = None,
 ) -> Ticket:
+    if ticket_type not in TICKET_ROUTING:
+        raise ValidationError("INVALID_TICKET_TYPE", "不支持的工单类型")
     order = get_order(db, customer, order_number)
     conversation = db.get(Conversation, conversation_id)
     if not conversation:
@@ -71,14 +86,20 @@ def create_ticket(
     )
     if existing:
         return existing
+    current_time = now or utcnow()
+    priority, sla_hours, _ = TICKET_ROUTING[ticket_type]
     ticket = Ticket(
-        ticket_number=_ticket_number(),
+        ticket_number=_ticket_number(current_time),
         customer_id=customer.id,
         order_id=order.id,
         conversation_id=conversation_id,
         ticket_type=ticket_type,
+        priority=priority,
+        sla_due_at=current_time + timedelta(hours=sla_hours),
         reason=reason,
         evidence=evidence or {},
+        created_at=current_time,
+        updated_at=current_time,
     )
     db.add(ticket)
     db.flush()
@@ -104,6 +125,80 @@ def get_ticket(db: Session, customer: Customer, ticket_id: str) -> Ticket:
     return ticket
 
 
+def request_human_handoff(
+    db: Session,
+    customer: Customer,
+    ticket_id: str,
+    *,
+    now: datetime | None = None,
+) -> Ticket:
+    ticket = get_ticket(db, customer, ticket_id)
+    if ticket.status == TicketStatus.RESOLVED.value:
+        raise ConflictError("RESOLVED_TICKET_HANDOFF", "已解决工单不能转人工")
+    if ticket.handoff_status == HandoffStatus.ASSIGNED.value:
+        return ticket
+
+    current_time = now or utcnow()
+    _, _, support_group = TICKET_ROUTING[ticket.ticket_type]
+    ticket.handoff_status = HandoffStatus.ASSIGNED.value
+    ticket.handoff_requested_at = current_time
+    ticket.assignee_name = support_group
+    ticket.assigned_at = current_time
+    ticket.updated_at = current_time
+    ticket.version += 1
+    db.add(
+        TicketEvent(
+            ticket_id=ticket.id,
+            action="HUMAN_HANDOFF_ASSIGNED",
+            detail=f"工单已转人工并自动分派至{support_group}",
+            actor="routing-service",
+            created_at=current_time,
+        )
+    )
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+def _aware(value: datetime) -> datetime:
+    return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def ticket_sla(ticket: Ticket, *, now: datetime | None = None) -> tuple[str, int]:
+    current_time = _aware(now or utcnow())
+    due_at = _aware(ticket.sla_due_at)
+    remaining_minutes = max(0, ceil((due_at - current_time).total_seconds() / 60))
+    if ticket.status == TicketStatus.RESOLVED.value:
+        return "COMPLETED", remaining_minutes
+    if current_time >= due_at:
+        return "BREACHED", 0
+    if due_at - current_time <= timedelta(hours=1):
+        return "DUE_SOON", remaining_minutes
+    return "ON_TRACK", remaining_minutes
+
+
+def ticket_snapshot(ticket: Ticket, *, now: datetime | None = None) -> dict:
+    sla_status, remaining_minutes = ticket_sla(ticket, now=now)
+    return {
+        "id": ticket.id,
+        "ticket_number": ticket.ticket_number,
+        "order_id": ticket.order_id,
+        "conversation_id": ticket.conversation_id,
+        "ticket_type": ticket.ticket_type,
+        "status": ticket.status,
+        "priority": ticket.priority,
+        "handoff_status": ticket.handoff_status,
+        "assignee_name": ticket.assignee_name,
+        "handoff_requested_at": ticket.handoff_requested_at,
+        "assigned_at": ticket.assigned_at,
+        "sla_due_at": ticket.sla_due_at,
+        "sla_status": sla_status,
+        "sla_remaining_minutes": remaining_minutes,
+        "reason": ticket.reason,
+        "created_at": ticket.created_at,
+    }
+
+
 def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
     events = list(
         db.scalars(
@@ -113,15 +208,8 @@ def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
         )
     )
     return TicketResponse(
-        id=ticket.id,
-        ticket_number=ticket.ticket_number,
-        order_id=ticket.order_id,
-        conversation_id=ticket.conversation_id,
-        ticket_type=ticket.ticket_type,
-        status=ticket.status,
-        reason=ticket.reason,
+        **ticket_snapshot(ticket),
         evidence=ticket.evidence,
-        created_at=ticket.created_at,
         updated_at=ticket.updated_at,
         events=[
             {

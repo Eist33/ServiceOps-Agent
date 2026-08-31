@@ -53,6 +53,14 @@ class TicketResponse(BaseModel):
     conversation_id: str
     ticket_type: str
     status: str
+    priority: str
+    handoff_status: str
+    assignee_name: str | None
+    handoff_requested_at: datetime | None
+    assigned_at: datetime | None
+    sla_due_at: datetime
+    sla_status: str
+    sla_remaining_minutes: int
     reason: str
     evidence: dict[str, Any]
     created_at: datetime
