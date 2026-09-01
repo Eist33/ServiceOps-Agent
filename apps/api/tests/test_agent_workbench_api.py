@@ -1,6 +1,11 @@
-from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
+from serviceops.seed import (
+    AGENT_SESSION_TOKEN,
+    OPS_SESSION_TOKEN,
+    SECOND_AGENT_SESSION_TOKEN,
+)
 
 AGENT_HEADERS = {"X-Agent-Session": AGENT_SESSION_TOKEN}
+SECOND_AGENT_HEADERS = {"X-Agent-Session": SECOND_AGENT_SESSION_TOKEN}
 
 
 def _create_handed_off_ticket(client) -> str:
@@ -39,6 +44,11 @@ def test_agent_queue_requires_support_agent_identity(client):
         "role": "SUPPORT_AGENT",
     }
 
+    second_profile = client.get("/api/agent/me", headers=SECOND_AGENT_HEADERS)
+    assert second_profile.status_code == 200
+    assert second_profile.json()["name"] == "陆川"
+    assert second_profile.json()["role"] == "SUPPORT_AGENT"
+
 
 def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     ticket_id = _create_handed_off_ticket(client)
@@ -51,6 +61,7 @@ def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     assert queued["support_group"] == "物流专员组"
     assert queued["customer_name"] == "林沐"
     assert queued["order_number"] == "ORD-20260828-1042"
+    assert queued["is_mine"] is False
 
     premature_note = client.post(
         f"/api/agent/tickets/{ticket_id}/notes",
@@ -68,6 +79,7 @@ def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     in_progress = accepted.json()
     assert in_progress["work_state"] == "IN_PROGRESS"
     assert in_progress["assignee_name"] == "沈清禾"
+    assert in_progress["is_mine"] is True
     assert in_progress["events"][-1]["action"] == "HUMAN_HANDOFF_ACCEPTED"
 
     repeated = client.post(
@@ -101,6 +113,50 @@ def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     assert completed["handoff_status"] == "COMPLETED"
     assert completed["work_state"] == "RESOLVED"
     assert completed["events"][-1]["action"] == "STATUS_RESOLVED"
+
+
+def test_only_first_agent_can_claim_and_operate_ticket(client):
+    ticket_id = _create_handed_off_ticket(client)
+
+    accepted = client.post(
+        f"/api/agent/tickets/{ticket_id}/accept",
+        headers=AGENT_HEADERS,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["assignee_name"] == "沈清禾"
+
+    conflict = client.post(
+        f"/api/agent/tickets/{ticket_id}/accept",
+        headers=SECOND_AGENT_HEADERS,
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["error"] == {
+        "code": "TICKET_ALREADY_ACCEPTED",
+        "message": "工单已由 沈清禾 受理",
+    }
+
+    second_queue = client.get("/api/agent/tickets", headers=SECOND_AGENT_HEADERS)
+    assert second_queue.status_code == 200
+    claimed = next(ticket for ticket in second_queue.json() if ticket["id"] == ticket_id)
+    assert claimed["work_state"] == "IN_PROGRESS"
+    assert claimed["assignee_name"] == "沈清禾"
+    assert claimed["is_mine"] is False
+
+    forbidden_note = client.post(
+        f"/api/agent/tickets/{ticket_id}/notes",
+        headers=SECOND_AGENT_HEADERS,
+        json={"content": "尝试处理其他坐席的工单"},
+    )
+    assert forbidden_note.status_code == 409
+    assert forbidden_note.json()["error"]["code"] == "TICKET_NOT_ACCEPTED"
+
+    forbidden_resolve = client.post(
+        f"/api/agent/tickets/{ticket_id}/resolve",
+        headers=SECOND_AGENT_HEADERS,
+        json={"resolution": "尝试解决其他坐席的工单"},
+    )
+    assert forbidden_resolve.status_code == 409
+    assert forbidden_resolve.json()["error"]["code"] == "TICKET_NOT_ACCEPTED"
 
 
 def test_agent_actions_validate_current_work_state(client):

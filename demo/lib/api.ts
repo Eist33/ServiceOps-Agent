@@ -2,7 +2,10 @@ export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 export const DEMO_SESSION = 'demo-linmu-session';
 export const OPS_SESSION = 'demo-knowledge-ops-session';
-export const AGENT_SESSION = 'demo-support-agent-session';
+export const AGENT_SESSIONS = [
+  { token: 'demo-support-agent-session', name: '沈清禾' },
+  { token: 'demo-support-agent-luchuan-session', name: '陆川' },
+] as const;
 
 export type AgentEvent = {
   type:
@@ -190,6 +193,7 @@ export type AgentTicketData = {
   work_state: 'QUEUED' | 'IN_PROGRESS' | 'RESOLVED';
   support_group: string;
   assignee_name?: string;
+  is_mine: boolean;
   sla_due_at: string;
   sla_status: string;
   sla_remaining_minutes: number;
@@ -237,10 +241,14 @@ async function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-async function agentRequest<T>(path: string, init?: RequestInit): Promise<T> {
+async function agentRequest<T>(
+  path: string,
+  sessionToken: string,
+  init?: RequestInit,
+): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  headers.set('X-Agent-Session', AGENT_SESSION);
+  headers.set('X-Agent-Session', sessionToken);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -358,25 +366,43 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
 
-export const getAgentProfile = () =>
-  agentRequest<AgentProfileData>('/api/agent/me');
+export const getAgentProfile = (sessionToken: string) =>
+  agentRequest<AgentProfileData>('/api/agent/me', sessionToken);
 
-export const listAgentTickets = () =>
-  agentRequest<AgentTicketData[]>('/api/agent/tickets');
+export const listAgentTickets = (sessionToken: string) =>
+  agentRequest<AgentTicketData[]>('/api/agent/tickets', sessionToken);
 
-export const acceptAgentTicket = (ticketId: string) =>
-  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/accept`, {
-    method: 'POST',
-  });
+export const acceptAgentTicket = (sessionToken: string, ticketId: string) =>
+  agentRequest<AgentTicketData>(
+    `/api/agent/tickets/${ticketId}/accept`,
+    sessionToken,
+    { method: 'POST' },
+  );
 
-export const addAgentTicketNote = (ticketId: string, content: string) =>
-  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/notes`, {
-    method: 'POST',
-    body: JSON.stringify({ content }),
-  });
+export const addAgentTicketNote = (
+  sessionToken: string,
+  ticketId: string,
+  content: string,
+) =>
+  agentRequest<AgentTicketData>(
+    `/api/agent/tickets/${ticketId}/notes`,
+    sessionToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+  );
 
-export const resolveAgentTicket = (ticketId: string, resolution: string) =>
-  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/resolve`, {
-    method: 'POST',
-    body: JSON.stringify({ resolution }),
-  });
+export const resolveAgentTicket = (
+  sessionToken: string,
+  ticketId: string,
+  resolution: string,
+) =>
+  agentRequest<AgentTicketData>(
+    `/api/agent/tickets/${ticketId}/resolve`,
+    sessionToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ resolution }),
+    },
+  );

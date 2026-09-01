@@ -24,6 +24,7 @@ DEMO_SESSION_TOKEN = "demo-linmu-session"
 SECONDARY_SESSION_TOKEN = "demo-other-session"
 OPS_SESSION_TOKEN = "demo-knowledge-ops-session"
 AGENT_SESSION_TOKEN = "demo-support-agent-session"
+SECOND_AGENT_SESSION_TOKEN = "demo-support-agent-luchuan-session"
 
 
 POLICIES = [
@@ -99,6 +100,17 @@ def seed_database(db: Session) -> None:
                 name="沈清禾",
                 role="SUPPORT_AGENT",
                 session_token=AGENT_SESSION_TOKEN,
+            )
+        )
+    second_support_agent = db.scalar(
+        select(Operator).where(Operator.session_token == SECOND_AGENT_SESSION_TOKEN)
+    )
+    if not second_support_agent:
+        db.add(
+            Operator(
+                name="陆川",
+                role="SUPPORT_AGENT",
+                session_token=SECOND_AGENT_SESSION_TOKEN,
             )
         )
     existing = db.scalar(select(Customer).where(Customer.session_token == DEMO_SESSION_TOKEN))

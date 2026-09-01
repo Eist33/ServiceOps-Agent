@@ -27,8 +27,16 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  AGENT_SESSIONS,
   type AgentProfileData,
   type AgentTicketData,
   acceptAgentTicket,
@@ -38,16 +46,19 @@ import {
   resolveAgentTicket,
 } from '@/lib/api';
 
-type QueueFilter = 'ACTIVE' | 'QUEUED' | 'IN_PROGRESS' | 'RESOLVED';
+type QueueFilter = 'ACTIVE' | 'QUEUED' | 'MINE' | 'RESOLVED';
 
 const filterLabels: Array<{ id: QueueFilter; label: string }> = [
   { id: 'ACTIVE', label: '全部待办' },
   { id: 'QUEUED', label: '待受理' },
-  { id: 'IN_PROGRESS', label: '处理中' },
+  { id: 'MINE', label: '我的处理中' },
   { id: 'RESOLVED', label: '已解决' },
 ];
 
 export default function AgentWorkbenchClient() {
+  const [sessionToken, setSessionToken] = useState<string>(
+    AGENT_SESSIONS[0].token,
+  );
   const [profile, setProfile] = useState<AgentProfileData | null>(null);
   const [tickets, setTickets] = useState<AgentTicketData[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -58,13 +69,13 @@ export default function AgentWorkbenchClient() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
 
-  async function load() {
+  async function load(targetSession = sessionToken) {
     setLoading(true);
     setError('');
     try {
       const [nextProfile, nextTickets] = await Promise.all([
-        getAgentProfile(),
-        listAgentTickets(),
+        getAgentProfile(targetSession),
+        listAgentTickets(targetSession),
       ]);
       setProfile(nextProfile);
       setTickets(nextTickets);
@@ -85,8 +96,8 @@ export default function AgentWorkbenchClient() {
     async function initialize() {
       try {
         const [nextProfile, nextTickets] = await Promise.all([
-          getAgentProfile(),
-          listAgentTickets(),
+          getAgentProfile(AGENT_SESSIONS[0].token),
+          listAgentTickets(AGENT_SESSIONS[0].token),
         ]);
         if (cancelled) return;
         setProfile(nextProfile);
@@ -112,6 +123,9 @@ export default function AgentWorkbenchClient() {
     () =>
       tickets.filter((ticket) => {
         if (filter === 'ACTIVE') return ticket.work_state !== 'RESOLVED';
+        if (filter === 'MINE') {
+          return ticket.work_state === 'IN_PROGRESS' && ticket.is_mine;
+        }
         return ticket.work_state === filter;
       }),
     [filter, tickets],
@@ -119,7 +133,7 @@ export default function AgentWorkbenchClient() {
   const selected = tickets.find((ticket) => ticket.id === selectedId) ?? null;
   const queued = tickets.filter((ticket) => ticket.work_state === 'QUEUED').length;
   const inProgress = tickets.filter(
-    (ticket) => ticket.work_state === 'IN_PROGRESS',
+    (ticket) => ticket.work_state === 'IN_PROGRESS' && ticket.is_mine,
   ).length;
   const slaRisk = tickets.filter((ticket) =>
     ['DUE_SOON', 'BREACHED'].includes(ticket.sla_status),
@@ -134,17 +148,33 @@ export default function AgentWorkbenchClient() {
     setSelectedId(ticket.id);
   }
 
+  async function switchAgent(nextSession: string | null) {
+    if (!nextSession || nextSession === sessionToken || busy) return;
+    setSessionToken(nextSession);
+    setNote('');
+    setNotice('');
+    setError('');
+    await load(nextSession);
+  }
+
   async function acceptTicket() {
     if (!selected || busy) return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      const updated = await acceptAgentTicket(selected.id);
+      const updated = await acceptAgentTicket(sessionToken, selected.id);
       updateTicket(updated);
       setNotice(`已受理工单 ${updated.ticket_number}`);
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '受理失败');
+      const message = caught instanceof Error ? caught.message : '受理失败';
+      try {
+        const nextTickets = await listAgentTickets(sessionToken);
+        setTickets(nextTickets);
+      } catch {
+        // 保留原始受理冲突，等待坐席手动刷新即可。
+      }
+      setError(message);
     } finally {
       setBusy(false);
     }
@@ -156,7 +186,11 @@ export default function AgentWorkbenchClient() {
     setError('');
     setNotice('');
     try {
-      const updated = await addAgentTicketNote(selected.id, note.trim());
+      const updated = await addAgentTicketNote(
+        sessionToken,
+        selected.id,
+        note.trim(),
+      );
       updateTicket(updated);
       setNote('');
       setNotice('处理记录已保存');
@@ -173,7 +207,11 @@ export default function AgentWorkbenchClient() {
     setError('');
     setNotice('');
     try {
-      const updated = await resolveAgentTicket(selected.id, note.trim());
+      const updated = await resolveAgentTicket(
+        sessionToken,
+        selected.id,
+        note.trim(),
+      );
       updateTicket(updated);
       setNote('');
       setNotice(`工单 ${updated.ticket_number} 已解决`);
@@ -201,9 +239,19 @@ export default function AgentWorkbenchClient() {
             <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
               <span className="size-1.5 rounded-full bg-emerald-500" /> 在线
             </Badge>
-            <span className="text-xs font-medium">
-              {profile?.name ?? '坐席身份校验中'}
-            </span>
+            <Select value={sessionToken} onValueChange={switchAgent}>
+              <SelectTrigger className="h-8 w-[132px]" aria-label="切换演示坐席">
+                <SelectValue placeholder="选择坐席" />
+              </SelectTrigger>
+              <SelectContent>
+                {AGENT_SESSIONS.map((agent) => (
+                  <SelectItem key={agent.token} value={agent.token}>
+                    {agent.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <span className="sr-only">当前坐席：{profile?.name ?? '校验中'}</span>
           </div>
         </div>
       </header>
@@ -240,7 +288,7 @@ export default function AgentWorkbenchClient() {
 
         <section className="grid gap-3 sm:grid-cols-3">
           <QueueMetric label="待受理" value={queued} icon={Inbox} tone="bg-amber-50 text-amber-700" />
-          <QueueMetric label="处理中" value={inProgress} icon={UserRoundCheck} tone="bg-sky-50 text-sky-700" />
+          <QueueMetric label="我的处理中" value={inProgress} icon={UserRoundCheck} tone="bg-sky-50 text-sky-700" />
           <QueueMetric label="SLA 风险" value={slaRisk} icon={Clock3} tone="bg-rose-50 text-rose-700" />
         </section>
 
@@ -379,6 +427,11 @@ function TicketQueueItem({
         <span>{ticket.priority} · {ticket.support_group}</span>
         <span>{slaLabel(ticket)}</span>
       </div>
+      {ticket.work_state === 'IN_PROGRESS' && (
+        <p className="mt-2 text-[11px] font-medium text-sky-700">
+          {ticket.is_mine ? '由我处理' : `由 ${ticket.assignee_name} 处理`}
+        </p>
+      )}
     </button>
   );
 }
@@ -442,7 +495,7 @@ function TicketWorkspace({
                 受理此工单
               </Button>
             </section>
-          ) : ticket.work_state === 'IN_PROGRESS' ? (
+          ) : ticket.work_state === 'IN_PROGRESS' && ticket.is_mine ? (
             <section className="space-y-3 rounded-xl border p-4">
               <div>
                 <p className="text-sm font-semibold">处理记录与解决说明</p>
@@ -475,13 +528,25 @@ function TicketWorkspace({
                 </Button>
               </div>
             </section>
+          ) : ticket.work_state === 'IN_PROGRESS' ? (
+            <section className="flex items-start gap-3 rounded-xl border border-sky-100 bg-sky-50 p-4 text-sky-800">
+              <ShieldCheck className="mt-0.5 size-5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold">
+                  已由 {ticket.assignee_name} 受理
+                </p>
+                <p className="mt-1 text-xs leading-5">
+                  当前坐席可以查看处理进度，但不能添加记录或解决其他坐席的工单。
+                </p>
+              </div>
+            </section>
           ) : (
             <section className="flex items-start gap-3 rounded-xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
               <CheckCircle2 className="mt-0.5 size-5 shrink-0" />
               <div>
                 <p className="text-sm font-semibold">工单已完成</p>
                 <p className="mt-1 text-xs leading-5">
-                  解决说明和操作人已记录，客户侧工单状态同步为已解决。
+                  解决说明和操作人已记录在坐席时间线中；客户侧当前仅同步已解决状态。
                 </p>
               </div>
             </section>

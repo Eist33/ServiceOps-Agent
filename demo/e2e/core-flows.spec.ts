@@ -109,6 +109,15 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await expect(page.getByText(/已受理工单/)).toBeVisible();
   await expect(page.getByText('沈清禾').first()).toBeVisible();
 
+  await page.getByLabel('切换演示坐席').click();
+  await page.getByRole('option', { name: '陆川' }).click();
+  await expect(page.getByText('已由 沈清禾 受理')).toBeVisible();
+  await expect(page.getByLabel('处理记录或解决说明')).toBeHidden();
+
+  await page.getByLabel('切换演示坐席').click();
+  await page.getByRole('option', { name: '沈清禾' }).click();
+  await expect(page.getByText('由我处理')).toBeVisible();
+
   const note = page.getByLabel('处理记录或解决说明');
   await note.fill('已联系承运商，确认今晚恢复转运。');
   await page.getByRole('button', { name: '添加处理记录' }).click();

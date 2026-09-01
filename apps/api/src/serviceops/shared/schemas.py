@@ -128,6 +128,7 @@ class AgentTicketResponse(BaseModel):
     work_state: str
     support_group: str
     assignee_name: str | None
+    is_mine: bool
     sla_due_at: datetime
     sla_status: str
     sla_remaining_minutes: int

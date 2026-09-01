@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
@@ -42,6 +42,7 @@ def workbench_ticket_response(
     db: Session,
     ticket: Ticket,
     *,
+    operator: Operator | None = None,
     now: datetime | None = None,
 ) -> AgentTicketResponse:
     order = db.get(Order, ticket.order_id)
@@ -77,6 +78,7 @@ def workbench_ticket_response(
         work_state=work_state,
         support_group=support_group,
         assignee_name=ticket.assignee_name,
+        is_mine=operator is not None and ticket.assignee_name == operator.name,
         sla_due_at=ticket.sla_due_at,
         sla_status=sla_status,
         sla_remaining_minutes=remaining_minutes,
@@ -97,7 +99,10 @@ def workbench_ticket_response(
     )
 
 
-def list_workbench_tickets(db: Session) -> list[AgentTicketResponse]:
+def list_workbench_tickets(
+    db: Session,
+    operator: Operator,
+) -> list[AgentTicketResponse]:
     tickets = list(
         db.scalars(
             select(Ticket)
@@ -109,7 +114,9 @@ def list_workbench_tickets(db: Session) -> list[AgentTicketResponse]:
             .order_by(Ticket.updated_at.desc())
         )
     )
-    return [workbench_ticket_response(db, ticket) for ticket in tickets]
+    return [
+        workbench_ticket_response(db, ticket, operator=operator) for ticket in tickets
+    ]
 
 
 def accept_workbench_ticket(
@@ -125,7 +132,7 @@ def accept_workbench_ticket(
     if ticket.handoff_status != HandoffStatus.ASSIGNED.value:
         raise ConflictError("TICKET_NOT_HANDED_OFF", "工单当前不在人工处理队列")
     if ticket.assignee_name == operator.name:
-        return workbench_ticket_response(db, ticket, now=now)
+        return workbench_ticket_response(db, ticket, operator=operator, now=now)
     support_group = _support_group(ticket)
     if ticket.assignee_name != support_group:
         raise ConflictError(
@@ -134,9 +141,38 @@ def accept_workbench_ticket(
         )
 
     current_time = now or utcnow()
-    ticket.assignee_name = operator.name
-    ticket.updated_at = current_time
-    ticket.version += 1
+    current_version = ticket.version
+    claimed = db.execute(
+        update(Ticket)
+        .where(
+            Ticket.id == ticket.id,
+            Ticket.handoff_status == HandoffStatus.ASSIGNED.value,
+            Ticket.assignee_name == support_group,
+            Ticket.version == current_version,
+        )
+        .values(
+            assignee_name=operator.name,
+            updated_at=current_time,
+            version=current_version + 1,
+        )
+        .execution_options(synchronize_session=False)
+    )
+    if claimed.rowcount != 1:
+        db.rollback()
+        current_ticket = _get_ticket(db, ticket_id)
+        if current_ticket.assignee_name == operator.name:
+            return workbench_ticket_response(
+                db,
+                current_ticket,
+                operator=operator,
+                now=now,
+            )
+        if current_ticket.assignee_name != _support_group(current_ticket):
+            raise ConflictError(
+                "TICKET_ALREADY_ACCEPTED",
+                f"工单已由 {current_ticket.assignee_name} 受理",
+            )
+        raise ConflictError("TICKET_STATE_CHANGED", "工单状态已变化，请刷新后重试")
     db.add(
         TicketEvent(
             ticket_id=ticket.id,
@@ -148,7 +184,12 @@ def accept_workbench_ticket(
     )
     db.commit()
     db.refresh(ticket)
-    return workbench_ticket_response(db, ticket, now=current_time)
+    return workbench_ticket_response(
+        db,
+        ticket,
+        operator=operator,
+        now=current_time,
+    )
 
 
 def add_workbench_note(
@@ -178,7 +219,12 @@ def add_workbench_note(
     )
     db.commit()
     db.refresh(ticket)
-    return workbench_ticket_response(db, ticket, now=current_time)
+    return workbench_ticket_response(
+        db,
+        ticket,
+        operator=operator,
+        now=current_time,
+    )
 
 
 def resolve_workbench_ticket(
@@ -205,4 +251,9 @@ def resolve_workbench_ticket(
     ticket.updated_at = current_time
     db.commit()
     db.refresh(ticket)
-    return workbench_ticket_response(db, ticket, now=current_time)
+    return workbench_ticket_response(
+        db,
+        ticket,
+        operator=operator,
+        now=current_time,
+    )

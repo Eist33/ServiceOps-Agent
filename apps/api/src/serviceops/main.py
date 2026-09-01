@@ -143,9 +143,9 @@ def create_app() -> FastAPI:
     @app.get("/api/agent/tickets", response_model=list[AgentTicketResponse])
     def agent_ticket_queue(
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_support_agent),
+        operator: Operator = Depends(current_support_agent),
     ):
-        return list_workbench_tickets(db)
+        return list_workbench_tickets(db, operator)
 
     @app.post(
         "/api/agent/tickets/{ticket_id}/accept",
