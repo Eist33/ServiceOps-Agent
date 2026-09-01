@@ -44,6 +44,7 @@ from serviceops.shared.schemas import (
 )
 from serviceops.shipping.service import get_shipping_status
 from serviceops.tickets.service import (
+    cancel_human_handoff,
     create_ticket,
     get_ticket,
     request_human_handoff,
@@ -254,6 +255,14 @@ def create_app() -> FastAPI:
         customer: Customer = Depends(current_customer),
     ):
         return ticket_response(db, request_human_handoff(db, customer, ticket_id))
+
+    @app.post("/api/tickets/{ticket_id}/handoff/cancel", response_model=TicketResponse)
+    def cancel_handoff_ticket_endpoint(
+        ticket_id: str,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        return ticket_response(db, cancel_human_handoff(db, customer, ticket_id))
 
     @app.post("/api/refund-requests/{refund_id}/confirm", response_model=RefundResponse)
     def confirm_refund_endpoint(

@@ -19,6 +19,7 @@ from serviceops.models import (
 from serviceops.refunds.service import cancel_refund, confirm_refund, create_refund_request
 from serviceops.shared.errors import ConflictError, ForbiddenError, ValidationError
 from serviceops.tickets.service import (
+    cancel_human_handoff,
     create_ticket,
     get_ticket,
     request_human_handoff,
@@ -64,6 +65,31 @@ def test_ticket_create_is_idempotent(db):
     )
     assert first.id == second.id
     assert db.scalar(select(func.count()).select_from(Ticket)) == 1
+
+
+def test_new_conversation_creates_a_distinct_active_ticket(db):
+    customer, first_conversation = make_conversation(db)
+    second_conversation = create_conversation(db, customer)
+    first = create_ticket(
+        db,
+        customer,
+        conversation_id=first_conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="首次会话物流停滞",
+    )
+    second = create_ticket(
+        db,
+        customer,
+        conversation_id=second_conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="新会话再次反馈物流停滞",
+    )
+
+    assert first.id != second.id
+    assert first.ticket_number != second.ticket_number
+    assert db.scalar(select(func.count()).select_from(Ticket)) == 2
 
 
 def test_ticket_gets_priority_and_sla_from_server_policy(db):
@@ -115,6 +141,52 @@ def test_human_handoff_is_auto_assigned_and_idempotent(db):
     ) == 1
     transition_ticket(db, first, TicketStatus.RESOLVED.value, actor="test", detail="resolved")
     assert first.handoff_status == HandoffStatus.COMPLETED.value
+
+
+def test_assigned_handoff_can_be_cancelled_and_requested_again(db):
+    customer, conversation = make_conversation(db)
+    ticket = create_ticket(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="物流停滞",
+    )
+    assigned = request_human_handoff(db, customer, ticket.id)
+    cancelled = cancel_human_handoff(db, customer, assigned.id)
+
+    assert cancelled.handoff_status == HandoffStatus.BOT_ACTIVE.value
+    assert cancelled.assignee_name is None
+    assert cancelled.handoff_requested_at is None
+    assert cancelled.assigned_at is None
+    assert db.scalar(
+        select(func.count())
+        .select_from(TicketEvent)
+        .where(
+            TicketEvent.ticket_id == ticket.id,
+            TicketEvent.action == "HUMAN_HANDOFF_CANCELLED",
+        )
+    ) == 1
+
+    reassigned = request_human_handoff(db, customer, ticket.id)
+    assert reassigned.handoff_status == HandoffStatus.ASSIGNED.value
+    assert reassigned.assignee_name == "物流专员组"
+
+
+def test_handoff_cancellation_requires_an_assignment(db):
+    customer, conversation = make_conversation(db)
+    ticket = create_ticket(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        ticket_type="SHIPPING",
+        reason="物流停滞",
+    )
+
+    with pytest.raises(ConflictError):
+        cancel_human_handoff(db, customer, ticket.id)
 
 
 def test_resolved_ticket_cannot_handoff(db):

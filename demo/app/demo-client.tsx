@@ -46,6 +46,7 @@ import {
   type OrderData,
   type ShippingData,
   cancelRefund,
+  cancelTicketHandoff,
   confirmRefund,
   createConversation,
   createShippingTicket,
@@ -427,6 +428,29 @@ export default function DemoClient() {
     }
   }
 
+  async function returnTicketToAgent(ticketId: string) {
+    if (handoffBusy) return;
+    setHandoffBusy(true);
+    setError('');
+    try {
+      const ticket = await cancelTicketHandoff(ticketId);
+      await refreshState(conversationId);
+      setItems((current) => [
+        ...current,
+        {
+          id: `handoff-cancel-${ticket.id}`,
+          kind: 'message',
+          role: 'agent',
+          text: `工单 ${ticket.ticket_number} 已撤销人工接管，后续由 Agent 继续处理。`,
+        },
+      ]);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '撤销人工接管失败');
+    } finally {
+      setHandoffBusy(false);
+    }
+  }
+
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
   const currentScenario = useMemo(
@@ -562,6 +586,7 @@ export default function DemoClient() {
         ticket={activeTicket}
         busy={handoffBusy}
         onHandoff={transferTicketToHuman}
+        onCancelHandoff={returnTicketToAgent}
       />
     </main>
   );
@@ -1040,12 +1065,14 @@ function TicketDialog({
   ticket,
   busy,
   onHandoff,
+  onCancelHandoff,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ticket: ConversationState['tickets'][number] | null;
   busy: boolean;
   onHandoff: (ticketId: string) => Promise<void>;
+  onCancelHandoff: (ticketId: string) => Promise<void>;
 }) {
   const resolved = ticket?.status === 'RESOLVED';
   const assigned = ticket?.handoff_status === 'ASSIGNED';
@@ -1125,15 +1152,22 @@ function TicketDialog({
           </Button>
           {ticket && !resolved && (
             <Button
-              disabled={busy || assigned}
-              onClick={() => void onHandoff(ticket.id)}
+              variant={assigned ? 'outline' : 'default'}
+              disabled={busy}
+              onClick={() =>
+                void (assigned
+                  ? onCancelHandoff(ticket.id)
+                  : onHandoff(ticket.id))
+              }
             >
               {busy ? (
                 <Loader2 className="animate-spin" />
+              ) : assigned ? (
+                <RotateCcw />
               ) : (
                 <UserRoundCheck />
               )}
-              {assigned ? '已分派人工' : '转人工处理'}
+              {assigned ? '撤销人工接管' : '转人工处理'}
             </Button>
           )}
         </DialogFooter>

@@ -79,6 +79,7 @@ def create_ticket(
         .where(
             Ticket.customer_id == customer.id,
             Ticket.order_id == order.id,
+            Ticket.conversation_id == conversation_id,
             Ticket.ticket_type == ticket_type,
             Ticket.status.in_([TicketStatus.OPEN.value, TicketStatus.WAITING_APPROVAL.value]),
         )
@@ -152,6 +153,41 @@ def request_human_handoff(
             action="HUMAN_HANDOFF_ASSIGNED",
             detail=f"工单已转人工并自动分派至{support_group}",
             actor="routing-service",
+            created_at=current_time,
+        )
+    )
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
+def cancel_human_handoff(
+    db: Session,
+    customer: Customer,
+    ticket_id: str,
+    *,
+    now: datetime | None = None,
+) -> Ticket:
+    ticket = get_ticket(db, customer, ticket_id)
+    if ticket.status == TicketStatus.RESOLVED.value:
+        raise ConflictError("RESOLVED_TICKET_HANDOFF", "已解决工单不能撤销人工接管")
+    if ticket.handoff_status != HandoffStatus.ASSIGNED.value:
+        raise ConflictError("HANDOFF_NOT_ASSIGNED", "当前工单没有可撤销的人工接管")
+
+    current_time = now or utcnow()
+    previous_assignee = ticket.assignee_name or "人工支持组"
+    ticket.handoff_status = HandoffStatus.BOT_ACTIVE.value
+    ticket.handoff_requested_at = None
+    ticket.assignee_name = None
+    ticket.assigned_at = None
+    ticket.updated_at = current_time
+    ticket.version += 1
+    db.add(
+        TicketEvent(
+            ticket_id=ticket.id,
+            action="HUMAN_HANDOFF_CANCELLED",
+            detail=f"用户撤销由{previous_assignee}处理，工单退回 Agent",
+            actor="customer",
             created_at=current_time,
         )
     )

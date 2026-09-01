@@ -42,7 +42,7 @@ def test_ticket_flow_changes_business_state(client):
     assert state["tickets"][0]["sla_status"] == "ON_TRACK"
 
 
-def test_reused_ticket_is_projected_into_new_conversation(client):
+def test_new_conversation_creates_its_own_ticket(client):
     first_conversation_id = new_conversation(client)
     run_agent(
         client,
@@ -62,8 +62,8 @@ def test_reused_ticket_is_projected_into_new_conversation(client):
     second_state = client.get(f"/api/conversations/{second_conversation_id}").json()
 
     assert len(second_state["tickets"]) == 1
-    assert second_state["tickets"][0]["id"] == first_ticket["id"]
-    assert second_state["tickets"][0]["ticket_number"] == first_ticket["ticket_number"]
+    assert second_state["tickets"][0]["id"] != first_ticket["id"]
+    assert second_state["tickets"][0]["ticket_number"] != first_ticket["ticket_number"]
     assert second_state["tool_invocations"][-1]["tool_name"] == "create_ticket"
 
 
@@ -86,6 +86,19 @@ def test_ticket_can_handoff_to_human_support_group(client, other_client):
     repeated = client.post(f"/api/tickets/{ticket['id']}/handoff")
     assert repeated.status_code == 200
     assert repeated.json()["assigned_at"] == handed_off["assigned_at"]
+
+    forbidden_cancel = other_client.post(
+        f"/api/tickets/{ticket['id']}/handoff/cancel"
+    )
+    assert forbidden_cancel.status_code == 403
+
+    cancelled = client.post(f"/api/tickets/{ticket['id']}/handoff/cancel")
+    assert cancelled.status_code == 200
+    returned_to_agent = cancelled.json()
+    assert returned_to_agent["handoff_status"] == "BOT_ACTIVE"
+    assert returned_to_agent["assignee_name"] is None
+    assert returned_to_agent["assigned_at"] is None
+    assert returned_to_agent["events"][-1]["action"] == "HUMAN_HANDOFF_CANCELLED"
 
 
 def test_refund_flow_requires_approval(client):

@@ -30,7 +30,7 @@ test('订单物流由工具返回确定性异常', async ({ page }) => {
   await expect(page.getByText(/系统规则判定为运输停滞/)).toBeVisible();
 });
 
-test('物流异常创建幂等工单', async ({ page }) => {
+test('新会话创建独立物流工单', async ({ page }) => {
   await page
     .getByRole('button', { name: /物流异常建单/ })
     .first()
@@ -38,15 +38,24 @@ test('物流异常创建幂等工单', async ({ page }) => {
   await expect(page.getByText(/已调用 create_ticket/)).toBeVisible();
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await expect(page.getByText(/TK-/).last()).toBeVisible();
+  const businessContext = page.getByRole('complementary').last();
+  const firstTicketNumber = (await businessContext.textContent())?.match(
+    /TK-\d{8}-[A-Z0-9]{6}/,
+  )?.[0];
+  expect(firstTicketNumber).toBeTruthy();
 
   await page
     .getByRole('button', { name: /物流异常建单/ })
     .first()
     .click();
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
-  const businessContext = page.getByRole('complementary').last();
   await expect(businessContext.getByText(/TK-/)).toBeVisible();
   await expect(businessContext.getByText('处理中')).toBeVisible();
+  const secondTicketNumber = (await businessContext.textContent())?.match(
+    /TK-\d{8}-[A-Z0-9]{6}/,
+  )?.[0];
+  expect(secondTicketNumber).toBeTruthy();
+  expect(secondTicketNumber).not.toBe(firstTicketNumber);
 });
 
 test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
@@ -61,7 +70,11 @@ test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
   await page.getByRole('button', { name: '转人工处理' }).click();
   await expect(page.getByText('人工接管已建立')).toBeVisible();
   await expect(page.getByText('物流专员组').first()).toBeVisible();
-  await expect(page.getByRole('button', { name: '已分派人工' })).toBeDisabled();
+  await page.getByRole('button', { name: '撤销人工接管' }).click();
+  await expect(page.getByText(/已撤销人工接管/)).toBeVisible();
+  await expect(page.getByText('人工接管已建立')).toBeHidden();
+  await expect(page.getByText('尚未转人工')).toBeVisible();
+  await expect(page.getByRole('button', { name: '转人工处理' })).toBeEnabled();
 });
 
 test('退款必须明确确认后才执行', async ({ page }) => {

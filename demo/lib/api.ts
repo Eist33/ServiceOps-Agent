@@ -271,6 +271,12 @@ export const handoffTicket = (ticketId: string) =>
     { method: 'POST' },
   );
 
+export const cancelTicketHandoff = (ticketId: string) =>
+  request<TicketData & { events: unknown[] }>(
+    `/api/tickets/${ticketId}/handoff/cancel`,
+    { method: 'POST' },
+  );
+
 export const confirmRefund = (refundId: string, key: string) =>
   request<ConversationState['refunds'][number]>(
     `/api/refund-requests/${refundId}/confirm`,
