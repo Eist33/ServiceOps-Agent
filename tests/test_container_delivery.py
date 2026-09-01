@@ -58,3 +58,9 @@ def test_compose_allows_both_local_browser_origins() -> None:
     assert (
         "WEB_ORIGIN: http://localhost:3000,http://127.0.0.1:3000" in compose
     )
+
+
+def test_compose_services_restart_after_docker_desktop_recovers() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert compose.count("restart: unless-stopped") == 3

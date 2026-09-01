@@ -3,6 +3,7 @@ name: harbor-support
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_DB: serviceops
       POSTGRES_USER: serviceops
@@ -19,6 +20,7 @@ services:
 
   api:
     build: ./apps/api
+    restart: unless-stopped
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
@@ -43,6 +45,7 @@ services:
       context: ./demo
       args:
         NEXT_PUBLIC_API_URL: http://localhost:8000
+    restart: unless-stopped
     depends_on:
       api:
         condition: service_healthy

@@ -49,6 +49,8 @@ docker compose up --build
 
 默认使用不依赖模型服务的确定性 Agent 模式，四个核心场景可以直接演示。
 
+三个服务都使用 `unless-stopped` 自动恢复策略。首次执行启动命令后，只要没有手动停止项目，后续电脑重启并打开 Docker Desktop 时，数据库、后端和网页会按健康检查顺序自动恢复；等待 Docker Desktop 显示引擎运行后即可重新访问网页。
+
 ### 启用 OpenAI Agents SDK 模式
 
 复制根目录 `.env.example` 为 `.env`，填写服务端密钥：
