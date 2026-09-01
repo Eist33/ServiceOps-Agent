@@ -23,6 +23,7 @@ from serviceops.models import (
 DEMO_SESSION_TOKEN = "demo-linmu-session"
 SECONDARY_SESSION_TOKEN = "demo-other-session"
 OPS_SESSION_TOKEN = "demo-knowledge-ops-session"
+AGENT_SESSION_TOKEN = "demo-support-agent-session"
 
 
 POLICIES = [
@@ -87,6 +88,17 @@ def seed_database(db: Session) -> None:
                 name="许知夏",
                 role="KNOWLEDGE_MANAGER",
                 session_token=OPS_SESSION_TOKEN,
+            )
+        )
+    support_agent = db.scalar(
+        select(Operator).where(Operator.session_token == AGENT_SESSION_TOKEN)
+    )
+    if not support_agent:
+        db.add(
+            Operator(
+                name="沈清禾",
+                role="SUPPORT_AGENT",
+                session_token=AGENT_SESSION_TOKEN,
             )
         )
     existing = db.scalar(select(Customer).where(Customer.session_token == DEMO_SESSION_TOKEN))

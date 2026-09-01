@@ -2,6 +2,7 @@ export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 export const DEMO_SESSION = 'demo-linmu-session';
 export const OPS_SESSION = 'demo-knowledge-ops-session';
+export const AGENT_SESSION = 'demo-support-agent-session';
 
 export type AgentEvent = {
   type:
@@ -169,6 +170,42 @@ export type OperationsDashboardData = {
   }>;
 };
 
+export type AgentProfileData = {
+  id: string;
+  name: string;
+  role: string;
+};
+
+export type AgentTicketData = {
+  id: string;
+  ticket_number: string;
+  conversation_id: string;
+  order_number: string;
+  customer_name: string;
+  product_name: string;
+  ticket_type: string;
+  status: string;
+  priority: string;
+  handoff_status: string;
+  work_state: 'QUEUED' | 'IN_PROGRESS' | 'RESOLVED';
+  support_group: string;
+  assignee_name?: string;
+  sla_due_at: string;
+  sla_status: string;
+  sla_remaining_minutes: number;
+  reason: string;
+  evidence: Record<string, unknown>;
+  version: number;
+  created_at: string;
+  updated_at: string;
+  events: Array<{
+    action: string;
+    detail: string;
+    actor: string;
+    created_at: string;
+  }>;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
@@ -190,6 +227,20 @@ async function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
   headers.set('X-Ops-Session', OPS_SESSION);
+  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? `请求失败（${response.status}）`);
+  }
+  return response.json() as Promise<T>;
+}
+
+async function agentRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Content-Type', 'application/json');
+  headers.set('X-Agent-Session', AGENT_SESSION);
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -306,3 +357,26 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
+
+export const getAgentProfile = () =>
+  agentRequest<AgentProfileData>('/api/agent/me');
+
+export const listAgentTickets = () =>
+  agentRequest<AgentTicketData[]>('/api/agent/tickets');
+
+export const acceptAgentTicket = (ticketId: string) =>
+  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/accept`, {
+    method: 'POST',
+  });
+
+export const addAgentTicketNote = (ticketId: string, content: string) =>
+  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/notes`, {
+    method: 'POST',
+    body: JSON.stringify({ content }),
+  });
+
+export const resolveAgentTicket = (ticketId: string, resolution: string) =>
+  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/resolve`, {
+    method: 'POST',
+    body: JSON.stringify({ resolution }),
+  });

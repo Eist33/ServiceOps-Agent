@@ -18,7 +18,11 @@ from serviceops.conversations.service import (
     create_conversation,
 )
 from serviceops.database import Base, engine, get_db
-from serviceops.identity.service import current_customer, current_operator
+from serviceops.identity.service import (
+    current_customer,
+    current_operator,
+    current_support_agent,
+)
 from serviceops.knowledge.management import (
     deactivate_knowledge_article,
     list_knowledge_articles,
@@ -31,6 +35,9 @@ from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
 from serviceops.shared.schemas import (
+    AgentTicketNoteRequest,
+    AgentTicketResolveRequest,
+    AgentTicketResponse,
     ConversationCreateResponse,
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
@@ -49,6 +56,12 @@ from serviceops.tickets.service import (
     get_ticket,
     request_human_handoff,
     ticket_response,
+)
+from serviceops.workbench.service import (
+    accept_workbench_ticket,
+    add_workbench_note,
+    list_workbench_tickets,
+    resolve_workbench_ticket,
 )
 
 
@@ -122,6 +135,52 @@ def create_app() -> FastAPI:
     @app.get("/api/ops/me")
     def ops_me(operator: Operator = Depends(current_operator)):
         return {"id": operator.id, "name": operator.name, "role": operator.role}
+
+    @app.get("/api/agent/me")
+    def agent_me(operator: Operator = Depends(current_support_agent)):
+        return {"id": operator.id, "name": operator.name, "role": operator.role}
+
+    @app.get("/api/agent/tickets", response_model=list[AgentTicketResponse])
+    def agent_ticket_queue(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_support_agent),
+    ):
+        return list_workbench_tickets(db)
+
+    @app.post(
+        "/api/agent/tickets/{ticket_id}/accept",
+        response_model=AgentTicketResponse,
+    )
+    def accept_agent_ticket(
+        ticket_id: str,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return accept_workbench_ticket(db, operator, ticket_id)
+
+    @app.post(
+        "/api/agent/tickets/{ticket_id}/notes",
+        response_model=AgentTicketResponse,
+    )
+    def add_agent_ticket_note(
+        ticket_id: str,
+        body: AgentTicketNoteRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return add_workbench_note(db, operator, ticket_id, body.content)
+
+    @app.post(
+        "/api/agent/tickets/{ticket_id}/resolve",
+        response_model=AgentTicketResponse,
+    )
+    def resolve_agent_ticket(
+        ticket_id: str,
+        body: AgentTicketResolveRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return resolve_workbench_ticket(db, operator, ticket_id, body.resolution)
 
     @app.get("/api/ops/knowledge", response_model=list[KnowledgeArticleResponse])
     def knowledge_index(

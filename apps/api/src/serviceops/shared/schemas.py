@@ -106,6 +106,39 @@ class OpsDashboardResponse(BaseModel):
     recent_tools: list[dict[str, Any]]
 
 
+class AgentTicketNoteRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=500)
+
+
+class AgentTicketResolveRequest(BaseModel):
+    resolution: str = Field(min_length=2, max_length=500)
+
+
+class AgentTicketResponse(BaseModel):
+    id: str
+    ticket_number: str
+    conversation_id: str
+    order_number: str
+    customer_name: str
+    product_name: str
+    ticket_type: str
+    status: str
+    priority: str
+    handoff_status: str
+    work_state: str
+    support_group: str
+    assignee_name: str | None
+    sla_due_at: datetime
+    sla_status: str
+    sla_remaining_minutes: int
+    reason: str
+    evidence: dict[str, Any]
+    version: int
+    created_at: datetime
+    updated_at: datetime
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class TicketCreateRequest(BaseModel):
     conversation_id: str
     order_number: str

@@ -77,6 +77,49 @@ test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
   await expect(page.getByRole('button', { name: '转人工处理' })).toBeEnabled();
 });
 
+test('人工坐席可受理、记录并解决工单', async ({ page, request }) => {
+  const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
+  const conversationResponse = await request.post(
+    'http://127.0.0.1:8000/api/conversations',
+    { headers: customerHeaders },
+  );
+  const conversation = await conversationResponse.json();
+  const ticketResponse = await request.post(
+    'http://127.0.0.1:8000/api/tickets',
+    {
+      headers: customerHeaders,
+      data: {
+        conversation_id: conversation.id,
+        order_number: 'ORD-20260828-1042',
+        ticket_type: 'SHIPPING',
+        reason: '物流停滞，需要人工联系承运商',
+      },
+    },
+  );
+  const ticket = await ticketResponse.json();
+  await request.post(
+    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    { headers: customerHeaders },
+  );
+
+  await page.goto('/agent');
+  await expect(page.getByRole('heading', { name: '人工工单队列' })).toBeVisible();
+  await expect(page.getByText(ticket.ticket_number).first()).toBeVisible();
+  await page.getByRole('button', { name: '受理此工单' }).click();
+  await expect(page.getByText(/已受理工单/)).toBeVisible();
+  await expect(page.getByText('沈清禾').first()).toBeVisible();
+
+  const note = page.getByLabel('处理记录或解决说明');
+  await note.fill('已联系承运商，确认今晚恢复转运。');
+  await page.getByRole('button', { name: '添加处理记录' }).click();
+  await expect(page.getByText('已联系承运商，确认今晚恢复转运。')).toBeVisible();
+
+  await note.fill('承运商已恢复转运，客户接受继续等待。');
+  await page.getByRole('button', { name: '标记已解决' }).click();
+  await expect(page.getByText(/已解决/).first()).toBeVisible();
+  await expect(page.getByText('工单已完成')).toBeVisible();
+});
+
 test('退款必须明确确认后才执行', async ({ page }) => {
   await page
     .getByRole('button', { name: /申请退款/ })

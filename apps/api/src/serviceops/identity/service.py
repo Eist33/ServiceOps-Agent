@@ -8,6 +8,7 @@ from serviceops.shared.errors import ForbiddenError
 
 DEMO_SESSION_HEADER = "X-Demo-Session"
 OPS_SESSION_HEADER = "X-Ops-Session"
+AGENT_SESSION_HEADER = "X-Agent-Session"
 
 
 def resolve_customer(db: Session, session_token: str | None) -> Customer:
@@ -40,3 +41,17 @@ def current_operator(
     db: Session = Depends(get_db),
 ) -> Operator:
     return resolve_operator(db, x_ops_session)
+
+
+def current_support_agent(
+    x_agent_session: str | None = Header(default=None, alias=AGENT_SESSION_HEADER),
+    db: Session = Depends(get_db),
+) -> Operator:
+    if not x_agent_session:
+        raise ForbiddenError("缺少坐席会话凭证")
+    operator = db.scalar(
+        select(Operator).where(Operator.session_token == x_agent_session)
+    )
+    if not operator or operator.role != "SUPPORT_AGENT":
+        raise ForbiddenError("坐席会话无效")
+    return operator
