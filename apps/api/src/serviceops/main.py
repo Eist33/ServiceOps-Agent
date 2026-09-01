@@ -25,6 +25,7 @@ from serviceops.knowledge.management import (
     publish_knowledge_article,
 )
 from serviceops.models import Customer, Operator
+from serviceops.operations.service import operations_dashboard
 from serviceops.orders.service import get_order
 from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
@@ -34,6 +35,7 @@ from serviceops.shared.schemas import (
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
     MessageRequest,
+    OpsDashboardResponse,
     OrderResponse,
     RefundResponse,
     ShippingResponse,
@@ -126,6 +128,13 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_operator),
     ):
         return list_knowledge_articles(db)
+
+    @app.get("/api/ops/dashboard", response_model=OpsDashboardResponse)
+    def ops_dashboard(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return operations_dashboard(db)
 
     @app.post("/api/ops/knowledge", response_model=KnowledgeArticleResponse)
     def publish_knowledge(

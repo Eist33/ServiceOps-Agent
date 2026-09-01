@@ -63,6 +63,49 @@ class KnowledgeArticleResponse(BaseModel):
     created_at: datetime
 
 
+class OpsTicketSummary(BaseModel):
+    total: int
+    active: int
+    resolved: int
+    assigned: int
+    due_soon: int
+    breached: int
+
+
+class OpsRefundSummary(BaseModel):
+    total: int
+    pending: int
+    succeeded: int
+    cancelled: int
+    total_refunded_amount: Decimal
+
+
+class OpsToolSummary(BaseModel):
+    total: int
+    succeeded: int
+    failed: int
+    success_rate: float
+    average_duration_ms: float
+
+
+class OpsKnowledgeSummary(BaseModel):
+    active: int
+    historical: int
+    versions: int
+
+
+class OpsDashboardResponse(BaseModel):
+    generated_at: datetime
+    tickets: OpsTicketSummary
+    refunds: OpsRefundSummary
+    tools: OpsToolSummary
+    knowledge: OpsKnowledgeSummary
+    ticket_types: list[dict[str, Any]]
+    activity: list[dict[str, Any]]
+    recent_tickets: list[dict[str, Any]]
+    recent_tools: list[dict[str, Any]]
+
+
 class TicketCreateRequest(BaseModel):
     conversation_id: str
     order_number: str

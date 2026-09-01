@@ -1,0 +1,403 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import Link from 'next/link';
+import {
+  Activity,
+  ArrowLeft,
+  BookOpenText,
+  Bot,
+  ChartNoAxesCombined,
+  CircleAlert,
+  Clock3,
+  Headphones,
+  Loader2,
+  ReceiptText,
+  TicketCheck,
+  UserRoundCheck,
+} from 'lucide-react';
+import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
+
+import { Badge } from '@/components/ui/badge';
+import { buttonVariants } from '@/components/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  type ChartConfig,
+  ChartContainer,
+  ChartTooltip,
+  ChartTooltipContent,
+} from '@/components/ui/chart';
+import { Progress, ProgressLabel } from '@/components/ui/progress';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import {
+  type OperationsDashboardData,
+  getOperationsDashboard,
+} from '@/lib/api';
+
+const activityConfig = {
+  tickets: { label: '新工单', color: 'oklch(0.52 0.09 220)' },
+  refunds: { label: '退款申请', color: 'oklch(0.66 0.14 25)' },
+  tools: { label: '工具调用', color: 'oklch(0.7 0.12 150)' },
+} satisfies ChartConfig;
+
+export default function OperationsClient() {
+  const [dashboard, setDashboard] = useState<OperationsDashboardData | null>(null);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    async function initialize() {
+      try {
+        const data = await getOperationsDashboard();
+        if (!cancelled) setDashboard(data);
+      } catch (caught) {
+        if (!cancelled) {
+          setError(caught instanceof Error ? caught.message : '运营数据加载失败');
+        }
+      }
+    }
+    void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return (
+    <main className="min-h-screen bg-[#f5f8f9] text-foreground">
+      <header className="border-b bg-white">
+        <div className="mx-auto flex min-h-16 max-w-[1500px] flex-wrap items-center justify-between gap-3 px-4 py-3 lg:px-8">
+          <div className="flex items-center gap-3">
+            <span className="grid size-9 place-items-center rounded-xl bg-primary text-primary-foreground">
+              <ChartNoAxesCombined className="size-4.5" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">Harbor Operations</p>
+              <p className="text-[11px] text-muted-foreground">客服质量与执行看板</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              href="/knowledge"
+            >
+              <BookOpenText /> 知识运营
+            </Link>
+            <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
+              <ArrowLeft /> 客服工作台
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <div className="mx-auto max-w-[1500px] space-y-6 px-4 py-7 lg:px-8">
+        <section className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">
+          <div>
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-primary">
+              <Activity className="size-4" /> 实时业务事实
+            </div>
+            <h1 className="text-2xl font-semibold tracking-tight">运营质量总览</h1>
+            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+              聚合工单、SLA、人工接管、退款和工具审计，所有指标均来自服务端数据库。
+            </p>
+          </div>
+          {dashboard && (
+            <p className="text-xs text-muted-foreground">
+              更新时间 {new Date(dashboard.generated_at).toLocaleString('zh-CN')}
+            </p>
+          )}
+        </section>
+
+        {error && (
+          <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
+            <CircleAlert className="size-4" /> {error}
+          </div>
+        )}
+
+        {!dashboard && !error ? (
+          <div className="flex justify-center rounded-2xl border bg-white py-24 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 size-4 animate-spin" /> 正在汇总运营数据…
+          </div>
+        ) : dashboard ? (
+          <>
+            <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <MetricCard
+                label="活动工单"
+                value={dashboard.tickets.active}
+                note={`${dashboard.tickets.resolved} 张已解决`}
+                icon={TicketCheck}
+                tone="bg-sky-50 text-sky-700"
+              />
+              <MetricCard
+                label="人工接管"
+                value={dashboard.tickets.assigned}
+                note={`${dashboard.tickets.total} 张累计工单`}
+                icon={UserRoundCheck}
+                tone="bg-violet-50 text-violet-700"
+              />
+              <MetricCard
+                label="SLA 风险"
+                value={dashboard.tickets.due_soon + dashboard.tickets.breached}
+                note={`${dashboard.tickets.breached} 张已超时`}
+                icon={Clock3}
+                tone="bg-amber-50 text-amber-700"
+              />
+              <MetricCard
+                label="已完成退款"
+                value={dashboard.refunds.succeeded}
+                note={`累计 ¥${dashboard.refunds.total_refunded_amount}`}
+                icon={ReceiptText}
+                tone="bg-emerald-50 text-emerald-700"
+              />
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>近 7 天业务活动</CardTitle>
+                  <CardDescription>新工单、退款申请和 Agent 工具调用趋势</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <ChartContainer config={activityConfig} className="h-[290px] w-full aspect-auto">
+                    <BarChart accessibilityLayer data={dashboard.activity}>
+                      <CartesianGrid vertical={false} />
+                      <XAxis dataKey="label" tickLine={false} axisLine={false} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="tickets" fill="var(--color-tickets)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="refunds" fill="var(--color-refunds)" radius={[4, 4, 0, 0]} />
+                      <Bar dataKey="tools" fill="var(--color-tools)" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                  <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                    <LegendDot color="bg-[#457188]" label="新工单" />
+                    <LegendDot color="bg-[#c77063]" label="退款申请" />
+                    <LegendDot color="bg-[#55a278]" label="工具调用" />
+                  </div>
+                </CardContent>
+              </Card>
+
+              <div className="grid gap-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Agent 工具健康度</CardTitle>
+                    <CardDescription>结构化工具调用执行质量</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-end justify-between">
+                      <div>
+                        <p className="text-3xl font-semibold tabular-nums">
+                          {dashboard.tools.total ? `${dashboard.tools.success_rate}%` : '—'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">成功率</p>
+                      </div>
+                      <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
+                        {dashboard.tools.failed} 次失败
+                      </Badge>
+                    </div>
+                    <Progress value={dashboard.tools.success_rate}>
+                      <ProgressLabel>成功调用</ProgressLabel>
+                      <span className="ml-auto text-sm tabular-nums text-muted-foreground">
+                        {dashboard.tools.succeeded} / {dashboard.tools.total}
+                      </span>
+                    </Progress>
+                    <div className="rounded-xl border bg-[#fbfcfc] p-3 text-xs">
+                      <span className="text-muted-foreground">平均耗时</span>
+                      <span className="float-right font-semibold tabular-nums">
+                        {dashboard.tools.average_duration_ms} ms
+                      </span>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>知识库状态</CardTitle>
+                    <CardDescription>当前客服检索可用范围</CardDescription>
+                  </CardHeader>
+                  <CardContent className="grid grid-cols-3 gap-2 text-center">
+                    <MiniMetric label="生效" value={dashboard.knowledge.active} />
+                    <MiniMetric label="历史" value={dashboard.knowledge.historical} />
+                    <MiniMetric label="版本" value={dashboard.knowledge.versions} />
+                  </CardContent>
+                </Card>
+              </div>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>最近工单</CardTitle>
+                  <CardDescription>优先查看人工接管和 SLA 风险</CardDescription>
+                </CardHeader>
+                <CardContent className="px-0">
+                  {dashboard.recent_tickets.length ? (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="pl-4">工单</TableHead>
+                          <TableHead>类型</TableHead>
+                          <TableHead>优先级</TableHead>
+                          <TableHead>处理队列</TableHead>
+                          <TableHead className="pr-4">SLA</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {dashboard.recent_tickets.map((ticket) => (
+                          <TableRow key={ticket.id}>
+                            <TableCell className="pl-4">
+                              <p className="font-medium">{ticket.ticket_number}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">{ticket.order_number}</p>
+                            </TableCell>
+                            <TableCell>{ticketTypeLabel(ticket.ticket_type)}</TableCell>
+                            <TableCell><Badge variant="outline">{ticket.priority}</Badge></TableCell>
+                            <TableCell>{ticket.assignee_name ?? 'Agent 自动处理'}</TableCell>
+                            <TableCell className="pr-4"><SlaBadge status={ticket.sla_status} /></TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  ) : (
+                    <EmptyState icon={TicketCheck} text="暂无工单，运行客服验收场景后会在这里汇总。" />
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>工单类型分布</CardTitle>
+                  <CardDescription>当前全部工单构成</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {dashboard.ticket_types.map((item) => {
+                    const percent = dashboard.tickets.total
+                      ? Math.round((item.count / dashboard.tickets.total) * 100)
+                      : 0;
+                    return (
+                      <Progress key={item.type} value={percent}>
+                        <ProgressLabel>{item.label}</ProgressLabel>
+                        <span className="ml-auto text-sm tabular-nums text-muted-foreground">
+                          {item.count}
+                        </span>
+                      </Progress>
+                    );
+                  })}
+                </CardContent>
+              </Card>
+            </section>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>最近工具调用</CardTitle>
+                <CardDescription>用于定位 Agent 执行失败与耗时异常</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dashboard.recent_tools.length ? (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {dashboard.recent_tools.map((tool) => (
+                      <div className="rounded-xl border bg-[#fbfcfc] p-3" key={tool.id}>
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-2 text-xs font-semibold">
+                            <Bot className="size-4 text-primary" /> {tool.tool_name}
+                          </span>
+                          <span className={`size-2 rounded-full ${tool.status === 'SUCCEEDED' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                        </div>
+                        <div className="mt-3 flex justify-between text-[11px] text-muted-foreground">
+                          <span>{tool.status === 'SUCCEEDED' ? '成功' : tool.error_type ?? '失败'}</span>
+                          <span className="tabular-nums">{tool.duration_ms} ms</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={Bot} text="暂无工具调用记录。" />
+                )}
+              </CardContent>
+            </Card>
+          </>
+        ) : null}
+      </div>
+    </main>
+  );
+}
+
+function MetricCard({
+  label,
+  value,
+  note,
+  icon: Icon,
+  tone,
+}: {
+  label: string;
+  value: number;
+  note: string;
+  icon: typeof Headphones;
+  tone: string;
+}) {
+  return (
+    <Card aria-label={label}>
+      <CardContent className="flex items-start justify-between">
+        <div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="mt-2 text-3xl font-semibold tabular-nums">{value}</p>
+          <p className="mt-2 text-xs text-muted-foreground">{note}</p>
+        </div>
+        <span className={`grid size-10 place-items-center rounded-xl ${tone}`}>
+          <Icon className="size-5" />
+        </span>
+      </CardContent>
+    </Card>
+  );
+}
+
+function MiniMetric({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-xl border bg-[#fbfcfc] px-2 py-3">
+      <p className="text-lg font-semibold tabular-nums">{value}</p>
+      <p className="mt-1 text-[10px] text-muted-foreground">{label}</p>
+    </div>
+  );
+}
+
+function LegendDot({ color, label }: { color: string; label: string }) {
+  return <span className="flex items-center gap-1.5"><span className={`size-2 rounded-sm ${color}`} />{label}</span>;
+}
+
+function EmptyState({ icon: Icon, text }: { icon: typeof Bot; text: string }) {
+  return (
+    <div className="flex flex-col items-center py-10 text-center text-sm text-muted-foreground">
+      <Icon className="mb-3 size-6 opacity-50" />
+      {text}
+    </div>
+  );
+}
+
+function ticketTypeLabel(type: string) {
+  return { SHIPPING: '物流异常', ORDER: '订单问题', REFUND: '退款申请', OTHER: '其他售后' }[type] ?? type;
+}
+
+function SlaBadge({ status }: { status: string }) {
+  const labels: Record<string, string> = {
+    ON_TRACK: '正常',
+    DUE_SOON: '即将到期',
+    BREACHED: '已超时',
+    COMPLETED: '已完成',
+  };
+  const tone = status === 'BREACHED'
+    ? 'bg-red-50 text-red-700'
+    : status === 'DUE_SOON'
+      ? 'bg-amber-50 text-amber-700'
+      : 'bg-emerald-50 text-emerald-700';
+  return <Badge className={tone} variant="secondary">{labels[status] ?? status}</Badge>;
+}

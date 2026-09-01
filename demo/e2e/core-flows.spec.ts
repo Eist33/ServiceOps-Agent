@@ -96,3 +96,22 @@ test('运营人员发布知识新版本并替换当前条款', async ({ page }) 
   await expect(page.getByRole('cell', { name: '2026-09' })).toBeVisible();
   await expect(page.getByText('历史版本').first()).toBeVisible();
 });
+
+test('运营看板汇总真实工单、人工接管与工具质量', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await page
+    .getByRole('button', { name: /物流异常建单/ })
+    .first()
+    .click();
+  await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
+  await page.getByRole('button', { name: '查看工单详情' }).click();
+  await page.getByRole('button', { name: '转人工处理' }).click();
+  await expect(page.getByText('人工接管已建立')).toBeVisible();
+
+  await page.goto('/operations');
+  await expect(page.getByRole('heading', { name: '运营质量总览' })).toBeVisible();
+  await expect(page.getByLabel('活动工单').getByText('1', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('人工接管').getByText('1', { exact: true })).toBeVisible();
+  await expect(page.getByText('100%')).toBeVisible();
+  await expect(page.getByRole('cell', { name: '物流专员组' })).toBeVisible();
+});

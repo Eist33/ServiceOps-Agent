@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   ArrowLeft,
   BookOpenCheck,
+  ChartNoAxesCombined,
   CircleAlert,
   FileClock,
   Loader2,
@@ -177,9 +178,17 @@ export default function KnowledgeClient() {
               <p className="text-[11px] text-muted-foreground">售后知识运营台</p>
             </div>
           </div>
-          <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
-            <ArrowLeft /> 返回客服工作台
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              href="/operations"
+            >
+              <ChartNoAxesCombined /> 运营看板
+            </Link>
+            <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
+              <ArrowLeft /> 返回客服工作台
+            </Link>
+          </div>
         </div>
       </header>
 

@@ -113,6 +113,62 @@ export type KnowledgePublishData = {
   source_uri: string;
 };
 
+export type OperationsDashboardData = {
+  generated_at: string;
+  tickets: {
+    total: number;
+    active: number;
+    resolved: number;
+    assigned: number;
+    due_soon: number;
+    breached: number;
+  };
+  refunds: {
+    total: number;
+    pending: number;
+    succeeded: number;
+    cancelled: number;
+    total_refunded_amount: string;
+  };
+  tools: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    success_rate: number;
+    average_duration_ms: number;
+  };
+  knowledge: { active: number; historical: number; versions: number };
+  ticket_types: Array<{ type: string; label: string; count: number }>;
+  activity: Array<{
+    date: string;
+    label: string;
+    tickets: number;
+    refunds: number;
+    tools: number;
+  }>;
+  recent_tickets: Array<{
+    id: string;
+    ticket_number: string;
+    order_number: string;
+    ticket_type: string;
+    status: string;
+    priority: string;
+    handoff_status: string;
+    assignee_name?: string;
+    sla_status: string;
+    sla_remaining_minutes: number;
+    created_at: string;
+  }>;
+  recent_tools: Array<{
+    id: string;
+    tool_name: string;
+    status: string;
+    duration_ms: number;
+    error_type?: string;
+    created_at: string;
+  }>;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
@@ -241,3 +297,6 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
     `/api/ops/knowledge/${articleId}/deactivate`,
     { method: 'POST' },
   );
+
+export const getOperationsDashboard = () =>
+  opsRequest<OperationsDashboardData>('/api/ops/dashboard');

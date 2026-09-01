@@ -5,6 +5,7 @@ import Link from 'next/link';
 import {
   Bot,
   BookOpenText,
+  ChartNoAxesCombined,
   Box,
   Check,
   CheckCircle2,
@@ -581,6 +582,13 @@ function Header() {
         </div>
       </div>
       <div className="flex items-center gap-3">
+        <Link
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          href="/operations"
+        >
+          <ChartNoAxesCombined />
+          <span className="hidden sm:inline">运营看板</span>
+        </Link>
         <Link
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
           href="/knowledge"
