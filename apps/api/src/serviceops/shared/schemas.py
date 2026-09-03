@@ -135,6 +135,37 @@ class OpsAlertAcknowledgementResponse(BaseModel):
     acknowledged_at: datetime
 
 
+class OpsQualityCheck(BaseModel):
+    key: str
+    label: str
+    passed: bool
+    score: int
+    max_score: int
+
+
+class OpsQualityItem(BaseModel):
+    ticket_id: str
+    ticket_number: str
+    order_number: str
+    customer_name: str
+    support_group: str
+    assignee_name: str
+    resolved_at: datetime
+    score: int
+    grade: str
+    checks: list[OpsQualityCheck]
+
+
+class OpsQualityReportResponse(BaseModel):
+    generated_at: datetime
+    total: int
+    excellent: int
+    qualified: int
+    attention: int
+    average_score: float
+    items: list[OpsQualityItem]
+
+
 class AgentTicketNoteRequest(BaseModel):
     content: str = Field(min_length=1, max_length=500)
 

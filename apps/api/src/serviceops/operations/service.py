@@ -15,6 +15,7 @@ from serviceops.models import (
     RefundRequest,
     RefundStatus,
     Ticket,
+    TicketEvent,
     TicketStatus,
     ToolInvocation,
 )
@@ -23,6 +24,7 @@ from serviceops.shared.schemas import (
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
+    OpsQualityReportResponse,
     OpsTicketReportResponse,
 )
 from serviceops.tickets.service import TICKET_ROUTING, ticket_sla
@@ -37,6 +39,7 @@ TICKET_TYPE_LABELS = {
 SLA_FILTERS = {"ON_TRACK", "DUE_SOON", "BREACHED", "COMPLETED", "RISK"}
 ALERT_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
 ALERT_TYPES = {"SLA_BREACHED", "SLA_DUE_SOON", "HANDOFF_QUEUED"}
+QUALITY_FIRST_REPLY_MINUTES = 30
 
 
 def _aware(value: datetime) -> datetime:
@@ -355,6 +358,149 @@ def operations_alerts(
         critical=sum(item["severity"] == "CRITICAL" for item in items),
         high=sum(item["severity"] == "HIGH" for item in items),
         medium=sum(item["severity"] == "MEDIUM" for item in items),
+        items=items,
+    )
+
+
+def operations_quality_report(
+    db: Session,
+    *,
+    now: datetime | None = None,
+) -> OpsQualityReportResponse:
+    current_time = _aware(now or datetime.now(UTC))
+    resolved_tickets = list(
+        db.scalars(
+            select(Ticket)
+            .where(
+                Ticket.status == TicketStatus.RESOLVED.value,
+                Ticket.handoff_status == HandoffStatus.COMPLETED.value,
+            )
+            .order_by(Ticket.updated_at.desc())
+        )
+    )
+    ticket_ids = {ticket.id for ticket in resolved_tickets}
+    events = (
+        list(
+            db.scalars(
+                select(TicketEvent)
+                .where(TicketEvent.ticket_id.in_(ticket_ids))
+                .order_by(TicketEvent.created_at.asc())
+            )
+        )
+        if ticket_ids
+        else []
+    )
+    events_by_ticket: dict[str, list[TicketEvent]] = {}
+    for event in events:
+        events_by_ticket.setdefault(event.ticket_id, []).append(event)
+
+    human_tickets = []
+    review_context = {}
+    for ticket in resolved_tickets:
+        ticket_events = events_by_ticket.get(ticket.id, [])
+        accepted = next(
+            (event for event in ticket_events if event.action == "HUMAN_HANDOFF_ACCEPTED"),
+            None,
+        )
+        resolved = next(
+            (event for event in reversed(ticket_events) if event.action == "STATUS_RESOLVED"),
+            None,
+        )
+        if accepted and resolved:
+            human_tickets.append(ticket)
+            review_context[ticket.id] = (ticket_events, accepted, resolved)
+
+    order_ids = {ticket.order_id for ticket in human_tickets}
+    customer_ids = {ticket.customer_id for ticket in human_tickets}
+    orders = (
+        list(db.scalars(select(Order).where(Order.id.in_(order_ids)))) if order_ids else []
+    )
+    customers = (
+        list(db.scalars(select(Customer).where(Customer.id.in_(customer_ids))))
+        if customer_ids
+        else []
+    )
+    order_numbers = {order.id: order.order_number for order in orders}
+    customer_names = {customer.id: customer.name for customer in customers}
+
+    items = []
+    for ticket in human_tickets:
+        ticket_events, accepted, resolved = review_context[ticket.id]
+        accepted_at = _aware(accepted.created_at)
+        resolved_at = _aware(resolved.created_at)
+        first_reply = next(
+            (
+                event
+                for event in ticket_events
+                if event.action == "AGENT_REPLY_SENT"
+                and _aware(event.created_at) >= accepted_at
+            ),
+            None,
+        )
+        first_reply_timely = bool(
+            first_reply
+            and _aware(first_reply.created_at) - accepted_at
+            <= timedelta(minutes=QUALITY_FIRST_REPLY_MINUTES)
+        )
+        checks = [
+            {
+                "key": "sla_met",
+                "label": "SLA 内解决",
+                "passed": resolved_at <= _aware(ticket.sla_due_at),
+                "max_score": 35,
+            },
+            {
+                "key": "first_reply_timely",
+                "label": "30 分钟内首次回复",
+                "passed": first_reply_timely,
+                "max_score": 25,
+            },
+            {
+                "key": "internal_note_present",
+                "label": "留有内部处理记录",
+                "passed": any(
+                    event.action == "AGENT_NOTE_ADDED" for event in ticket_events
+                ),
+                "max_score": 15,
+            },
+            {
+                "key": "resolution_complete",
+                "label": "解决方案完整",
+                "passed": len(resolved.detail.strip()) >= 10,
+                "max_score": 25,
+            },
+        ]
+        for check in checks:
+            check["score"] = check["max_score"] if check["passed"] else 0
+        score = sum(int(check["score"]) for check in checks)
+        grade = "EXCELLENT" if score >= 90 else "QUALIFIED" if score >= 75 else "ATTENTION"
+        items.append(
+            {
+                "ticket_id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "order_number": order_numbers.get(ticket.order_id, "未知订单"),
+                "customer_name": customer_names.get(ticket.customer_id, "未知客户"),
+                "support_group": TICKET_ROUTING[ticket.ticket_type][2],
+                "assignee_name": ticket.assignee_name or accepted.actor,
+                "resolved_at": resolved_at,
+                "score": score,
+                "grade": grade,
+                "checks": checks,
+            }
+        )
+
+    items.sort(key=lambda item: item["resolved_at"], reverse=True)
+    return OpsQualityReportResponse(
+        generated_at=current_time,
+        total=len(items),
+        excellent=sum(item["grade"] == "EXCELLENT" for item in items),
+        qualified=sum(item["grade"] == "QUALIFIED" for item in items),
+        attention=sum(item["grade"] == "ATTENTION" for item in items),
+        average_score=(
+            round(sum(int(item["score"]) for item in items) / len(items), 1)
+            if items
+            else 0
+        ),
         items=items,
     )
 

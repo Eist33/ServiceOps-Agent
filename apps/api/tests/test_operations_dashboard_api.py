@@ -33,6 +33,9 @@ def test_operations_dashboard_requires_operator_identity(client):
     report = client.get("/api/ops/tickets")
     assert report.status_code == 403
 
+    quality = client.get("/api/ops/quality-reviews")
+    assert quality.status_code == 403
+
     alerts = client.get("/api/ops/alerts")
     assert alerts.status_code == 403
 
@@ -56,6 +59,18 @@ def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
     assert dashboard["knowledge"] == {"active": 12, "historical": 0, "versions": 1}
     assert len(dashboard["activity"]) == 7
     assert dashboard["recent_tickets"] == []
+
+    quality = client.get("/api/ops/quality-reviews", headers=OPS_HEADERS)
+    assert quality.status_code == 200
+    assert quality.json() == {
+        "generated_at": quality.json()["generated_at"],
+        "total": 0,
+        "excellent": 0,
+        "qualified": 0,
+        "attention": 0,
+        "average_score": 0.0,
+        "items": [],
+    }
 
 
 def test_dashboard_aggregates_ticket_handoff_sla_and_tool_health(client):
@@ -227,6 +242,89 @@ def test_operations_alerts_prioritize_sla_and_close_accepted_queue(client, db):
     after_accept = client.get("/api/ops/alerts", headers=OPS_HEADERS).json()
     assert after_accept["total"] == 2
     assert queued_id not in {item["ticket_id"] for item in after_accept["items"]}
+
+
+def test_quality_report_scores_only_resolved_human_tickets(client, db):
+    def create_human_ticket(*, complete: bool) -> dict:
+        conversation_id = _start_conversation(client)
+        ticket = client.post(
+            "/api/tickets",
+            json={
+                "conversation_id": conversation_id,
+                "order_number": "ORD-20260828-1042",
+                "ticket_type": "SHIPPING",
+                "reason": "物流停滞，需要人工核查",
+            },
+        ).json()
+        assert client.post(f"/api/tickets/{ticket['id']}/handoff").status_code == 200
+        assert (
+            client.post(
+                f"/api/agent/tickets/{ticket['id']}/accept",
+                headers=AGENT_HEADERS,
+            ).status_code
+            == 200
+        )
+        if complete:
+            assert (
+                client.post(
+                    f"/api/agent/tickets/{ticket['id']}/messages",
+                    headers=AGENT_HEADERS,
+                    json={"content": "已联系承运商，正在核查转运进度。"},
+                ).status_code
+                == 200
+            )
+            assert (
+                client.post(
+                    f"/api/agent/tickets/{ticket['id']}/notes",
+                    headers=AGENT_HEADERS,
+                    json={"content": "承运商确认今晚恢复转运。"},
+                ).status_code
+                == 200
+            )
+        else:
+            db.expire_all()
+            stored = db.get(Ticket, ticket["id"])
+            assert stored is not None
+            stored.sla_due_at = datetime.now(UTC) - timedelta(minutes=5)
+            db.commit()
+        resolution = "承运商已恢复转运，客户接受继续等待。" if complete else "已处理"
+        response = client.post(
+            f"/api/agent/tickets/{ticket['id']}/resolve",
+            headers=AGENT_HEADERS,
+            json={"resolution": resolution},
+        )
+        assert response.status_code == 200
+        return ticket
+
+    complete = create_human_ticket(complete=True)
+    incomplete = create_human_ticket(complete=False)
+
+    response = client.get("/api/ops/quality-reviews", headers=OPS_HEADERS)
+    assert response.status_code == 200
+    report = response.json()
+    assert report["total"] == 2
+    assert report["excellent"] == 1
+    assert report["qualified"] == 0
+    assert report["attention"] == 1
+    assert report["average_score"] == 50.0
+
+    by_ticket = {item["ticket_id"]: item for item in report["items"]}
+    excellent = by_ticket[complete["id"]]
+    assert excellent["score"] == 100
+    assert excellent["grade"] == "EXCELLENT"
+    assert excellent["assignee_name"] == "沈清禾"
+    assert excellent["customer_name"] == "林沐"
+    assert all(check["passed"] for check in excellent["checks"])
+
+    attention = by_ticket[incomplete["id"]]
+    assert attention["score"] == 0
+    assert attention["grade"] == "ATTENTION"
+    assert [check["key"] for check in attention["checks"] if not check["passed"]] == [
+        "sla_met",
+        "first_reply_timely",
+        "internal_note_present",
+        "resolution_complete",
+    ]
 
 
 def test_operations_alert_acknowledgement_is_durable_idempotent_and_state_scoped(

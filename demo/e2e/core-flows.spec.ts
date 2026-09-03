@@ -131,6 +131,10 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await page.getByRole('option', { name: '沈清禾' }).click();
   await expect(page.getByText('由我处理')).toBeVisible();
 
+  await page.getByLabel('回复客户').fill('已联系承运商，正在核查转运进度。');
+  await page.getByRole('button', { name: '发送给客户' }).click();
+  await expect(page.getByText('回复已发送给客户')).toBeVisible();
+
   const note = page.getByLabel('处理记录或解决说明');
   await note.fill('已联系承运商，确认今晚恢复转运。');
   await page.getByRole('button', { name: '添加处理记录' }).click();
@@ -151,6 +155,13 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await expect(page.getByText('客服处理方案')).toBeVisible();
   await expect(page.getByText('处理人')).toBeVisible();
   await expect(page.getByText('沈清禾').last()).toBeVisible();
+
+  await page.goto('/operations');
+  await expect(page.getByText('人工工单自动质检', { exact: true })).toBeVisible();
+  await expect(page.getByText('已质检 1')).toBeVisible();
+  await expect(page.getByText('平均 100 分')).toBeVisible();
+  await expect(page.getByText('100 分', { exact: true })).toBeVisible();
+  await expect(page.getByText('全部通过')).toBeVisible();
 });
 
 test('人工坐席无需刷新即可接收新工单', async ({ page, request }) => {

@@ -248,6 +248,33 @@ export type OperationsAlertAcknowledgementData = {
   acknowledged_at: string;
 };
 
+export type OperationsQualityReportData = {
+  generated_at: string;
+  total: number;
+  excellent: number;
+  qualified: number;
+  attention: number;
+  average_score: number;
+  items: Array<{
+    ticket_id: string;
+    ticket_number: string;
+    order_number: string;
+    customer_name: string;
+    support_group: string;
+    assignee_name: string;
+    resolved_at: string;
+    score: number;
+    grade: 'EXCELLENT' | 'QUALIFIED' | 'ATTENTION';
+    checks: Array<{
+      key: string;
+      label: string;
+      passed: boolean;
+      score: number;
+      max_score: number;
+    }>;
+  }>;
+};
+
 export type OperationsAlertEvent =
   | { type: 'operations_alert_snapshot'; snapshot: OperationsAlertSnapshotData }
   | { type: 'heartbeat' };
@@ -458,6 +485,9 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
+
+export const getOperationsQualityReport = () =>
+  opsRequest<OperationsQualityReportData>('/api/ops/quality-reviews');
 
 export const getOperationsTicketReport = (filters?: {
   supportGroup?: string;

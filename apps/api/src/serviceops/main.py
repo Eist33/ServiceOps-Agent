@@ -33,6 +33,7 @@ from serviceops.operations.service import (
     acknowledge_operations_alert,
     operations_alerts,
     operations_dashboard,
+    operations_quality_report,
     operations_ticket_report,
 )
 from serviceops.operations.streaming import stream_operations_alerts
@@ -51,6 +52,7 @@ from serviceops.shared.schemas import (
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
+    OpsQualityReportResponse,
     OpsTicketReportResponse,
     OrderResponse,
     RefundResponse,
@@ -247,6 +249,13 @@ def create_app() -> FastAPI:
             support_group=support_group,
             sla_status=sla_status,
         )
+
+    @app.get("/api/ops/quality-reviews", response_model=OpsQualityReportResponse)
+    def ops_quality_reviews(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return operations_quality_report(db)
 
     @app.get("/api/ops/alerts", response_model=OpsAlertSnapshotResponse)
     def ops_alert_index(

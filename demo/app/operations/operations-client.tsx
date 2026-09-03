@@ -12,6 +12,7 @@ import {
   ChartNoAxesCombined,
   CheckCircle2,
   CircleAlert,
+  ClipboardCheck,
   Clock3,
   Download,
   Headphones,
@@ -57,9 +58,11 @@ import {
 import {
   type OperationsDashboardData,
   type OperationsAlertSnapshotData,
+  type OperationsQualityReportData,
   type OperationsTicketReportData,
   acknowledgeOperationsAlert,
   getOperationsDashboard,
+  getOperationsQualityReport,
   getOperationsTicketReport,
   streamOperationsAlerts,
 } from '@/lib/api';
@@ -81,6 +84,10 @@ export default function OperationsClient() {
   const [acknowledgementError, setAcknowledgementError] = useState('');
   const [ticketReport, setTicketReport] =
     useState<OperationsTicketReportData | null>(null);
+  const [qualityReport, setQualityReport] =
+    useState<OperationsQualityReportData | null>(null);
+  const [qualityLoading, setQualityLoading] = useState(true);
+  const [qualityError, setQualityError] = useState('');
   const [supportGroup, setSupportGroup] = useState('ALL');
   const [slaStatus, setSlaStatus] = useState('ALL');
   const [reportLoading, setReportLoading] = useState(true);
@@ -100,6 +107,30 @@ export default function OperationsClient() {
       }
     }
     void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadQualityReport() {
+      setQualityLoading(true);
+      setQualityError('');
+      try {
+        const data = await getOperationsQualityReport();
+        if (!cancelled) setQualityReport(data);
+      } catch (caught) {
+        if (!cancelled) {
+          setQualityError(
+            caught instanceof Error ? caught.message : '工单质检数据加载失败',
+          );
+        }
+      } finally {
+        if (!cancelled) setQualityLoading(false);
+      }
+    }
+    void loadQualityReport();
     return () => {
       cancelled = true;
     };
@@ -429,6 +460,99 @@ export default function OperationsClient() {
                 </Card>
               </div>
             </section>
+
+            <Card>
+              <CardHeader>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ClipboardCheck className="size-4 text-primary" /> 人工工单自动质检
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      按 SLA、首次回复、内部记录与解决方案完整度自动评分
+                    </CardDescription>
+                  </div>
+                  {qualityReport && (
+                    <div className="flex flex-wrap gap-2 text-xs">
+                      <Badge variant="secondary">已质检 {qualityReport.total}</Badge>
+                      <Badge className="bg-emerald-50 text-emerald-700" variant="secondary">
+                        平均 {qualityReport.average_score} 分
+                      </Badge>
+                      <Badge className="bg-amber-50 text-amber-700" variant="secondary">
+                        待改进 {qualityReport.attention}
+                      </Badge>
+                    </div>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="px-0">
+                {qualityLoading ? (
+                  <div className="flex justify-center py-10 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" /> 正在生成质检结果…
+                  </div>
+                ) : qualityError ? (
+                  <EmptyState icon={CircleAlert} text={qualityError} />
+                ) : qualityReport?.items.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="pl-4">工单</TableHead>
+                        <TableHead>处理坐席</TableHead>
+                        <TableHead>得分</TableHead>
+                        <TableHead>结果</TableHead>
+                        <TableHead>检查项</TableHead>
+                        <TableHead className="pr-4">解决时间</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {qualityReport.items.map((item) => {
+                        const failedChecks = item.checks.filter((check) => !check.passed);
+                        return (
+                          <TableRow key={item.ticket_id}>
+                            <TableCell className="pl-4">
+                              <p className="font-medium">{item.ticket_number}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {item.customer_name} · {item.order_number}
+                              </p>
+                            </TableCell>
+                            <TableCell>
+                              <p>{item.assignee_name}</p>
+                              <p className="mt-1 text-[11px] text-muted-foreground">
+                                {item.support_group}
+                              </p>
+                            </TableCell>
+                            <TableCell className="font-semibold tabular-nums">
+                              {item.score} 分
+                            </TableCell>
+                            <TableCell><QualityBadge grade={item.grade} /></TableCell>
+                            <TableCell>
+                              {failedChecks.length ? (
+                                <div className="flex max-w-md flex-wrap gap-1.5">
+                                  {failedChecks.map((check) => (
+                                    <Badge key={check.key} variant="outline" className="text-[10px]">
+                                      {check.label}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : (
+                                <span className="flex items-center gap-1.5 text-xs text-emerald-700">
+                                  <CheckCircle2 className="size-3.5" /> 全部通过
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="pr-4 text-xs text-muted-foreground">
+                              {new Date(item.resolved_at).toLocaleString('zh-CN')}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <EmptyState icon={ClipboardCheck} text="暂无已解决的人工工单可供质检。" />
+                )}
+              </CardContent>
+            </Card>
 
             <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
               <Card>
@@ -782,6 +906,20 @@ function SlaBadge({ status }: { status: string }) {
       ? 'bg-amber-50 text-amber-700'
       : 'bg-emerald-50 text-emerald-700';
   return <Badge className={tone} variant="secondary">{labels[status] ?? status}</Badge>;
+}
+
+function QualityBadge({ grade }: { grade: 'EXCELLENT' | 'QUALIFIED' | 'ATTENTION' }) {
+  const label = {
+    EXCELLENT: '优秀',
+    QUALIFIED: '合格',
+    ATTENTION: '待改进',
+  }[grade];
+  const tone = grade === 'EXCELLENT'
+    ? 'bg-emerald-50 text-emerald-700'
+    : grade === 'QUALIFIED'
+      ? 'bg-sky-50 text-sky-700'
+      : 'bg-amber-50 text-amber-700';
+  return <Badge className={tone} variant="secondary">{label}</Badge>;
 }
 
 function slaText(status: string) {
