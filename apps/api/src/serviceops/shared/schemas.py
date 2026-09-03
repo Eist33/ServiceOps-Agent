@@ -106,6 +106,17 @@ class OpsDashboardResponse(BaseModel):
     recent_tools: list[dict[str, Any]]
 
 
+class OpsTicketReportResponse(BaseModel):
+    generated_at: datetime
+    selected_support_group: str | None
+    selected_sla_status: str | None
+    available_support_groups: list[str]
+    total: int
+    risk: int
+    breached: int
+    items: list[dict[str, Any]]
+
+
 class AgentTicketNoteRequest(BaseModel):
     content: str = Field(min_length=1, max_length=500)
 

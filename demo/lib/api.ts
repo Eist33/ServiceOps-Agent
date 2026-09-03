@@ -187,6 +187,31 @@ export type OperationsDashboardData = {
   }>;
 };
 
+export type OperationsTicketReportData = {
+  generated_at: string;
+  selected_support_group: string | null;
+  selected_sla_status: string | null;
+  available_support_groups: string[];
+  total: number;
+  risk: number;
+  breached: number;
+  items: Array<{
+    id: string;
+    ticket_number: string;
+    order_number: string;
+    customer_name: string;
+    ticket_type: string;
+    priority: string;
+    status: string;
+    handoff_status: string;
+    support_group: string;
+    assignee_name?: string;
+    sla_status: string;
+    sla_remaining_minutes: number;
+    updated_at: string;
+  }>;
+};
+
 export type AgentProfileData = {
   id: string;
   name: string;
@@ -393,6 +418,17 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
+
+export const getOperationsTicketReport = (filters?: {
+  supportGroup?: string;
+  slaStatus?: string;
+}) => {
+  const params = new URLSearchParams();
+  if (filters?.supportGroup) params.set('support_group', filters.supportGroup);
+  if (filters?.slaStatus) params.set('sla_status', filters.slaStatus);
+  const query = params.size ? `?${params.toString()}` : '';
+  return opsRequest<OperationsTicketReportData>(`/api/ops/tickets${query}`);
+};
 
 export const getAgentProfile = (sessionToken: string) =>
   agentRequest<AgentProfileData>('/api/agent/me', sessionToken);

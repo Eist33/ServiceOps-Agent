@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
+    Customer,
     HandoffStatus,
     KnowledgeArticle,
     Order,
@@ -14,8 +15,9 @@ from serviceops.models import (
     TicketStatus,
     ToolInvocation,
 )
-from serviceops.shared.schemas import OpsDashboardResponse
-from serviceops.tickets.service import ticket_sla
+from serviceops.shared.errors import ValidationError
+from serviceops.shared.schemas import OpsDashboardResponse, OpsTicketReportResponse
+from serviceops.tickets.service import TICKET_ROUTING, ticket_sla
 
 TICKET_TYPE_LABELS = {
     "SHIPPING": "物流异常",
@@ -23,6 +25,8 @@ TICKET_TYPE_LABELS = {
     "REFUND": "退款申请",
     "OTHER": "其他售后",
 }
+
+SLA_FILTERS = {"ON_TRACK", "DUE_SOON", "BREACHED", "COMPLETED", "RISK"}
 
 
 def _aware(value: datetime) -> datetime:
@@ -149,4 +153,74 @@ def operations_dashboard(
             }
             for tool in tools[:8]
         ],
+    )
+
+
+def operations_ticket_report(
+    db: Session,
+    *,
+    support_group: str | None = None,
+    sla_status: str | None = None,
+    now: datetime | None = None,
+) -> OpsTicketReportResponse:
+    available_support_groups = list(
+        dict.fromkeys(route[2] for route in TICKET_ROUTING.values())
+    )
+    if support_group and support_group not in available_support_groups:
+        raise ValidationError("INVALID_SUPPORT_GROUP", "不支持的处理组筛选条件")
+    if sla_status and sla_status not in SLA_FILTERS:
+        raise ValidationError("INVALID_SLA_STATUS", "不支持的 SLA 筛选条件")
+
+    current_time = _aware(now or datetime.now(UTC))
+    tickets = list(db.scalars(select(Ticket).order_by(Ticket.updated_at.desc())))
+    order_ids = {ticket.order_id for ticket in tickets}
+    customer_ids = {ticket.customer_id for ticket in tickets}
+    orders = (
+        list(db.scalars(select(Order).where(Order.id.in_(order_ids)))) if order_ids else []
+    )
+    customers = (
+        list(db.scalars(select(Customer).where(Customer.id.in_(customer_ids))))
+        if customer_ids
+        else []
+    )
+    order_numbers = {order.id: order.order_number for order in orders}
+    customer_names = {customer.id: customer.name for customer in customers}
+
+    items = []
+    for ticket in tickets:
+        ticket_support_group = TICKET_ROUTING[ticket.ticket_type][2]
+        ticket_sla_status, remaining_minutes = ticket_sla(ticket, now=current_time)
+        if support_group and ticket_support_group != support_group:
+            continue
+        if sla_status == "RISK" and ticket_sla_status not in {"DUE_SOON", "BREACHED"}:
+            continue
+        if sla_status and sla_status != "RISK" and ticket_sla_status != sla_status:
+            continue
+        items.append(
+            {
+                "id": ticket.id,
+                "ticket_number": ticket.ticket_number,
+                "order_number": order_numbers.get(ticket.order_id, "未知订单"),
+                "customer_name": customer_names.get(ticket.customer_id, "未知客户"),
+                "ticket_type": ticket.ticket_type,
+                "priority": ticket.priority,
+                "status": ticket.status,
+                "handoff_status": ticket.handoff_status,
+                "support_group": ticket_support_group,
+                "assignee_name": ticket.assignee_name,
+                "sla_status": ticket_sla_status,
+                "sla_remaining_minutes": remaining_minutes,
+                "updated_at": _aware(ticket.updated_at).isoformat(),
+            }
+        )
+
+    return OpsTicketReportResponse(
+        generated_at=current_time,
+        selected_support_group=support_group,
+        selected_sla_status=sla_status,
+        available_support_groups=available_support_groups,
+        total=len(items),
+        risk=sum(item["sla_status"] in {"DUE_SOON", "BREACHED"} for item in items),
+        breached=sum(item["sla_status"] == "BREACHED" for item in items),
+        items=items,
     )

@@ -1,3 +1,6 @@
+from datetime import UTC, datetime, timedelta
+
+from serviceops.models import Ticket
 from serviceops.seed import OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
@@ -22,6 +25,9 @@ def test_operations_dashboard_requires_operator_identity(client):
 
     assert response.status_code == 403
     assert response.json()["error"]["code"] == "FORBIDDEN"
+
+    report = client.get("/api/ops/tickets")
+    assert report.status_code == 403
 
 
 def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
@@ -70,3 +76,77 @@ def test_dashboard_aggregates_ticket_handoff_sla_and_tool_health(client):
         "get_shipping_status",
         "get_order",
     ]
+
+
+def test_ticket_report_filters_by_support_group_and_sla(client, db):
+    shipping_conversation = _start_conversation(client)
+    shipping = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": shipping_conversation,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞",
+        },
+    ).json()
+    other_conversation = _start_conversation(client)
+    other = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": other_conversation,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "OTHER",
+            "reason": "其他售后问题",
+        },
+    ).json()
+
+    shipping_ticket = db.get(Ticket, shipping["id"])
+    assert shipping_ticket is not None
+    shipping_ticket.sla_due_at = datetime.now(UTC) - timedelta(minutes=5)
+    db.commit()
+
+    all_tickets = client.get("/api/ops/tickets", headers=OPS_HEADERS)
+    assert all_tickets.status_code == 200
+    report = all_tickets.json()
+    assert report["total"] == 2
+    assert report["risk"] == 1
+    assert report["breached"] == 1
+    assert report["available_support_groups"] == [
+        "物流专员组",
+        "订单支持组",
+        "退款审核组",
+        "综合支持组",
+    ]
+
+    shipping_group = client.get(
+        "/api/ops/tickets",
+        headers=OPS_HEADERS,
+        params={"support_group": "物流专员组"},
+    ).json()
+    assert shipping_group["total"] == 1
+    assert shipping_group["items"][0]["ticket_number"] == shipping["ticket_number"]
+    assert shipping_group["items"][0]["customer_name"] == "林沐"
+    assert shipping_group["items"][0]["sla_status"] == "BREACHED"
+
+    risk = client.get(
+        "/api/ops/tickets",
+        headers=OPS_HEADERS,
+        params={"sla_status": "RISK"},
+    ).json()
+    assert [item["id"] for item in risk["items"]] == [shipping["id"]]
+
+    no_match = client.get(
+        "/api/ops/tickets",
+        headers=OPS_HEADERS,
+        params={"support_group": "综合支持组", "sla_status": "RISK"},
+    ).json()
+    assert no_match["total"] == 0
+    assert other["id"] not in {item["id"] for item in no_match["items"]}
+
+    invalid = client.get(
+        "/api/ops/tickets",
+        headers=OPS_HEADERS,
+        params={"sla_status": "UNKNOWN"},
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "INVALID_SLA_STATUS"

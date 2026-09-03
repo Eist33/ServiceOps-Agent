@@ -321,3 +321,55 @@ test('运营看板汇总真实工单、人工接管与工具质量', async ({ pa
   await expect(page.getByText('100%')).toBeVisible();
   await expect(page.getByRole('cell', { name: '物流专员组' })).toBeVisible();
 });
+
+test('运营人员可筛选处理组与 SLA 并导出当前工单', async ({ page, request }) => {
+  const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
+  async function createTicket(ticketType: 'SHIPPING' | 'OTHER', reason: string) {
+    const conversationResponse = await request.post(
+      'http://127.0.0.1:8000/api/conversations',
+      { headers: customerHeaders },
+    );
+    const conversation = await conversationResponse.json();
+    const response = await request.post('http://127.0.0.1:8000/api/tickets', {
+      headers: customerHeaders,
+      data: {
+        conversation_id: conversation.id,
+        order_number: 'ORD-20260828-1042',
+        ticket_type: ticketType,
+        reason,
+      },
+    });
+    return response.json();
+  }
+
+  const shipping = await createTicket('SHIPPING', '物流停滞');
+  const other = await createTicket('OTHER', '其他售后问题');
+  await page.goto('/operations');
+  await expect(page.getByText(shipping.ticket_number)).toBeVisible();
+  await expect(page.getByText(other.ticket_number)).toBeVisible();
+
+  await page.getByLabel('处理组筛选').click();
+  await page.getByRole('option', { name: '物流专员组' }).click();
+  await expect(page.getByText(shipping.ticket_number)).toBeVisible();
+  await expect(page.getByText(other.ticket_number)).toBeHidden();
+  await expect(page.getByLabel('筛选结果统计')).toContainText('当前 1 张');
+
+  await page.getByLabel('SLA 状态筛选').click();
+  await page.getByRole('option', { name: '已超时' }).click();
+  await expect(page.getByText('当前筛选条件下没有工单。')).toBeVisible();
+  await page.getByLabel('SLA 状态筛选').click();
+  await page.getByRole('option', { name: '全部 SLA' }).click();
+  await expect(page.getByText(shipping.ticket_number)).toBeVisible();
+
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出 CSV' }).click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^harbor-tickets-\d{4}-\d{2}-\d{2}\.csv$/);
+  const stream = await download.createReadStream();
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of stream) chunks.push(chunk as Uint8Array);
+  const csv = Buffer.concat(chunks).toString('utf8');
+  expect(csv).toContain(shipping.ticket_number);
+  expect(csv).toContain('物流专员组');
+  expect(csv).not.toContain(other.ticket_number);
+});

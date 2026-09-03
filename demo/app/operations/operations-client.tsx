@@ -11,6 +11,7 @@ import {
   ChartNoAxesCombined,
   CircleAlert,
   Clock3,
+  Download,
   Headphones,
   Loader2,
   ReceiptText,
@@ -20,7 +21,7 @@ import {
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
-import { buttonVariants } from '@/components/ui/button';
+import { Button, buttonVariants } from '@/components/ui/button';
 import {
   Card,
   CardContent,
@@ -36,6 +37,13 @@ import {
 } from '@/components/ui/chart';
 import { Progress, ProgressLabel } from '@/components/ui/progress';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Table,
   TableBody,
   TableCell,
@@ -45,7 +53,9 @@ import {
 } from '@/components/ui/table';
 import {
   type OperationsDashboardData,
+  type OperationsTicketReportData,
   getOperationsDashboard,
+  getOperationsTicketReport,
 } from '@/lib/api';
 
 const activityConfig = {
@@ -56,6 +66,12 @@ const activityConfig = {
 
 export default function OperationsClient() {
   const [dashboard, setDashboard] = useState<OperationsDashboardData | null>(null);
+  const [ticketReport, setTicketReport] =
+    useState<OperationsTicketReportData | null>(null);
+  const [supportGroup, setSupportGroup] = useState('ALL');
+  const [slaStatus, setSlaStatus] = useState('ALL');
+  const [reportLoading, setReportLoading] = useState(true);
+  const [reportError, setReportError] = useState('');
   const [error, setError] = useState('');
 
   useEffect(() => {
@@ -75,6 +91,33 @@ export default function OperationsClient() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadTicketReport() {
+      setReportLoading(true);
+      setReportError('');
+      try {
+        const data = await getOperationsTicketReport({
+          supportGroup: supportGroup === 'ALL' ? undefined : supportGroup,
+          slaStatus: slaStatus === 'ALL' ? undefined : slaStatus,
+        });
+        if (!cancelled) setTicketReport(data);
+      } catch (caught) {
+        if (!cancelled) {
+          setReportError(
+            caught instanceof Error ? caught.message : '工单报表加载失败',
+          );
+        }
+      } finally {
+        if (!cancelled) setReportLoading(false);
+      }
+    }
+    void loadTicketReport();
+    return () => {
+      cancelled = true;
+    };
+  }, [slaStatus, supportGroup]);
 
   return (
     <main className="min-h-screen bg-[#f5f8f9] text-foreground">
@@ -239,15 +282,79 @@ export default function OperationsClient() {
             <section className="grid gap-6 xl:grid-cols-[minmax(0,1.4fr)_minmax(300px,0.6fr)]">
               <Card>
                 <CardHeader>
-                  <CardTitle>最近工单</CardTitle>
-                  <CardDescription>优先查看人工接管和 SLA 风险</CardDescription>
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <CardTitle>工单下钻</CardTitle>
+                      <CardDescription className="mt-1">
+                        按处理组与 SLA 状态筛选，并导出当前结果
+                      </CardDescription>
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={!ticketReport?.items.length || reportLoading}
+                      onClick={() => ticketReport && downloadTicketReport(ticketReport)}
+                    >
+                      <Download /> 导出 CSV
+                    </Button>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Select
+                      value={supportGroup}
+                      onValueChange={(value) => value && setSupportGroup(value)}
+                    >
+                      <SelectTrigger className="w-[150px]" aria-label="处理组筛选">
+                        <SelectValue placeholder="全部处理组" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">全部处理组</SelectItem>
+                        {ticketReport?.available_support_groups.map((group) => (
+                          <SelectItem key={group} value={group}>
+                            {group}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <Select
+                      value={slaStatus}
+                      onValueChange={(value) => value && setSlaStatus(value)}
+                    >
+                      <SelectTrigger className="w-[140px]" aria-label="SLA 状态筛选">
+                        <SelectValue placeholder="全部 SLA" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="ALL">全部 SLA</SelectItem>
+                        <SelectItem value="RISK">全部风险</SelectItem>
+                        <SelectItem value="ON_TRACK">正常</SelectItem>
+                        <SelectItem value="DUE_SOON">即将到期</SelectItem>
+                        <SelectItem value="BREACHED">已超时</SelectItem>
+                        <SelectItem value="COMPLETED">已完成</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {ticketReport && !reportLoading && (
+                    <p
+                      className="mt-2 text-xs text-muted-foreground"
+                      aria-label="筛选结果统计"
+                    >
+                      当前 {ticketReport.total} 张 · 风险 {ticketReport.risk} 张 ·
+                      已超时 {ticketReport.breached} 张
+                    </p>
+                  )}
                 </CardHeader>
                 <CardContent className="px-0">
-                  {dashboard.recent_tickets.length ? (
+                  {reportLoading ? (
+                    <div className="flex justify-center py-12 text-sm text-muted-foreground">
+                      <Loader2 className="mr-2 size-4 animate-spin" /> 正在筛选工单…
+                    </div>
+                  ) : reportError ? (
+                    <EmptyState icon={CircleAlert} text={reportError} />
+                  ) : ticketReport?.items.length ? (
                     <Table>
                       <TableHeader>
                         <TableRow>
                           <TableHead className="pl-4">工单</TableHead>
+                          <TableHead>客户</TableHead>
                           <TableHead>类型</TableHead>
                           <TableHead>优先级</TableHead>
                           <TableHead>处理队列</TableHead>
@@ -255,22 +362,23 @@ export default function OperationsClient() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {dashboard.recent_tickets.map((ticket) => (
+                        {ticketReport.items.map((ticket) => (
                           <TableRow key={ticket.id}>
                             <TableCell className="pl-4">
                               <p className="font-medium">{ticket.ticket_number}</p>
                               <p className="mt-1 text-[11px] text-muted-foreground">{ticket.order_number}</p>
                             </TableCell>
+                            <TableCell>{ticket.customer_name}</TableCell>
                             <TableCell>{ticketTypeLabel(ticket.ticket_type)}</TableCell>
                             <TableCell><Badge variant="outline">{ticket.priority}</Badge></TableCell>
-                            <TableCell>{ticket.assignee_name ?? 'Agent 自动处理'}</TableCell>
+                            <TableCell>{ticket.support_group}</TableCell>
                             <TableCell className="pr-4"><SlaBadge status={ticket.sla_status} /></TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
                     </Table>
                   ) : (
-                    <EmptyState icon={TicketCheck} text="暂无工单，运行客服验收场景后会在这里汇总。" />
+                    <EmptyState icon={TicketCheck} text="当前筛选条件下没有工单。" />
                   )}
                 </CardContent>
               </Card>
@@ -331,6 +439,39 @@ export default function OperationsClient() {
       </div>
     </main>
   );
+}
+
+function downloadTicketReport(report: OperationsTicketReportData) {
+  const rows = [
+    ['工单编号', '订单编号', '客户', '类型', '优先级', '处理组', '当前负责人', 'SLA', '更新时间'],
+    ...report.items.map((ticket) => [
+      ticket.ticket_number,
+      ticket.order_number,
+      ticket.customer_name,
+      ticketTypeLabel(ticket.ticket_type),
+      ticket.priority,
+      ticket.support_group,
+      ticket.assignee_name ?? 'Agent 自动处理',
+      slaText(ticket.sla_status),
+      new Date(ticket.updated_at).toLocaleString('zh-CN'),
+    ]),
+  ];
+  const csv = `\uFEFF${rows
+    .map((row) => row.map(csvCell).join(','))
+    .join('\r\n')}`;
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `harbor-tickets-${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function csvCell(value: string) {
+  const safeValue = /^[=+@-]/.test(value.trimStart()) ? `'${value}` : value;
+  return `"${safeValue.replaceAll('"', '""')}"`;
 }
 
 function MetricCard({
@@ -401,4 +542,13 @@ function SlaBadge({ status }: { status: string }) {
       ? 'bg-amber-50 text-amber-700'
       : 'bg-emerald-50 text-emerald-700';
   return <Badge className={tone} variant="secondary">{labels[status] ?? status}</Badge>;
+}
+
+function slaText(status: string) {
+  return {
+    ON_TRACK: '正常',
+    DUE_SOON: '即将到期',
+    BREACHED: '已超时',
+    COMPLETED: '已完成',
+  }[status] ?? status;
 }
