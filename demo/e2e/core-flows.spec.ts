@@ -135,6 +135,7 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await note.fill('已联系承运商，确认今晚恢复转运。');
   await page.getByRole('button', { name: '添加处理记录' }).click();
   await expect(page.getByText('已联系承运商，确认今晚恢复转运。')).toBeVisible();
+  await expect(page.getByText('处理记录已保存')).toBeVisible();
 
   await note.fill('承运商已恢复转运，客户接受继续等待。');
   await page.getByRole('button', { name: '标记已解决' }).click();
@@ -404,13 +405,28 @@ test('运营看板无需刷新即可接收并关闭主动告警', async ({ page,
   await expect(alert).toContainText('人工工单等待受理');
   await expect(alert).toContainText(ticket.ticket_number);
   await expect(alert).toContainText('物流专员组');
+  await expect(page.getByText('待确认 1')).toBeVisible();
+
+  await page.getByRole('button', { name: `确认知悉 ${ticket.ticket_number}` }).click();
+  await expect(
+    page.getByLabel(`告警确认状态 ${ticket.ticket_number}`),
+  ).toContainText('已由 许知夏 确认');
+  await expect(page.getByText('待确认 0')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByLabel('实时告警状态')).toContainText('实时已连接');
+  const restoredAlert = page.locator(`[data-alert-ticket="${ticket.id}"]`);
+  await expect(restoredAlert).toBeVisible();
+  await expect(
+    page.getByLabel(`告警确认状态 ${ticket.ticket_number}`),
+  ).toContainText('已由 许知夏 确认');
 
   const accepted = await request.post(
     `http://127.0.0.1:8000/api/agent/tickets/${ticket.id}/accept`,
     { headers: { 'X-Agent-Session': 'demo-support-agent-session' } },
   );
   expect(accepted.ok()).toBeTruthy();
-  await expect(alert).toBeHidden();
+  await expect(restoredAlert).toBeHidden();
   await expect(page.getByText('当前没有需要运营介入的主动告警。')).toBeVisible();
   await expect(page.getByLabel('实时告警状态')).toContainText('实时已连接');
 });

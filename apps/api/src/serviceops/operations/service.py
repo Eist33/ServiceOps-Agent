@@ -2,12 +2,15 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
     Customer,
     HandoffStatus,
     KnowledgeArticle,
+    OperationsAlertAcknowledgement,
+    Operator,
     Order,
     RefundRequest,
     RefundStatus,
@@ -15,8 +18,9 @@ from serviceops.models import (
     TicketStatus,
     ToolInvocation,
 )
-from serviceops.shared.errors import ValidationError
+from serviceops.shared.errors import ConflictError, NotFoundError, ValidationError
 from serviceops.shared.schemas import (
+    OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
     OpsTicketReportResponse,
@@ -32,6 +36,7 @@ TICKET_TYPE_LABELS = {
 
 SLA_FILTERS = {"ON_TRACK", "DUE_SOON", "BREACHED", "COMPLETED", "RISK"}
 ALERT_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
+ALERT_TYPES = {"SLA_BREACHED", "SLA_DUE_SOON", "HANDOFF_QUEUED"}
 
 
 def _aware(value: datetime) -> datetime:
@@ -256,6 +261,22 @@ def operations_alerts(
     )
     order_numbers = {order.id: order.order_number for order in orders}
     customer_names = {customer.id: customer.name for customer in customers}
+    acknowledgements = (
+        list(
+            db.scalars(
+                select(OperationsAlertAcknowledgement).where(
+                    OperationsAlertAcknowledgement.ticket_id.in_(
+                        {ticket.id for ticket in tickets}
+                    )
+                )
+            )
+        )
+        if tickets
+        else []
+    )
+    acknowledgements_by_alert = {
+        (item.ticket_id, item.alert_type): item for item in acknowledgements
+    }
 
     items = []
     for ticket in tickets:
@@ -290,6 +311,8 @@ def operations_alerts(
         else:
             continue
 
+        acknowledgement = acknowledgements_by_alert.get((ticket.id, alert_type))
+
         items.append(
             {
                 "id": f"{ticket.id}:{alert_type}",
@@ -306,6 +329,15 @@ def operations_alerts(
                 "sla_status": sla_status,
                 "sla_remaining_minutes": remaining_minutes,
                 "triggered_at": triggered_at.isoformat(),
+                "acknowledged": acknowledgement is not None,
+                "acknowledged_by": (
+                    acknowledgement.acknowledged_by_name if acknowledgement else None
+                ),
+                "acknowledged_at": (
+                    _aware(acknowledgement.acknowledged_at).isoformat()
+                    if acknowledgement
+                    else None
+                ),
             }
         )
 
@@ -319,8 +351,76 @@ def operations_alerts(
     return OpsAlertSnapshotResponse(
         generated_at=current_time,
         total=len(items),
+        unacknowledged=sum(not item["acknowledged"] for item in items),
         critical=sum(item["severity"] == "CRITICAL" for item in items),
         high=sum(item["severity"] == "HIGH" for item in items),
         medium=sum(item["severity"] == "MEDIUM" for item in items),
         items=items,
+    )
+
+
+def acknowledge_operations_alert(
+    db: Session,
+    operator: Operator,
+    ticket_id: str,
+    alert_type: str,
+    *,
+    now: datetime | None = None,
+) -> OpsAlertAcknowledgementResponse:
+    if alert_type not in ALERT_TYPES:
+        raise ValidationError("INVALID_ALERT_TYPE", "不支持的运营告警类型")
+    if not db.get(Ticket, ticket_id):
+        raise NotFoundError("工单不存在")
+
+    current_time = _aware(now or datetime.now(UTC))
+    snapshot = operations_alerts(db, now=current_time)
+    active_alert = next(
+        (item for item in snapshot.items if item["ticket_id"] == ticket_id),
+        None,
+    )
+    if not active_alert or active_alert["type"] != alert_type:
+        raise ConflictError("ALERT_NOT_ACTIVE", "该告警已关闭或已升级，请刷新后重试")
+
+    existing = db.scalar(
+        select(OperationsAlertAcknowledgement).where(
+            OperationsAlertAcknowledgement.ticket_id == ticket_id,
+            OperationsAlertAcknowledgement.alert_type == alert_type,
+        )
+    )
+    if existing:
+        return _acknowledgement_response(existing)
+
+    acknowledgement = OperationsAlertAcknowledgement(
+        ticket_id=ticket_id,
+        alert_type=alert_type,
+        acknowledged_by_operator_id=operator.id,
+        acknowledged_by_name=operator.name,
+        acknowledged_at=current_time,
+    )
+    db.add(acknowledgement)
+    try:
+        db.commit()
+        db.refresh(acknowledgement)
+    except IntegrityError:
+        db.rollback()
+        acknowledgement = db.scalar(
+            select(OperationsAlertAcknowledgement).where(
+                OperationsAlertAcknowledgement.ticket_id == ticket_id,
+                OperationsAlertAcknowledgement.alert_type == alert_type,
+            )
+        )
+        if not acknowledgement:
+            raise
+    return _acknowledgement_response(acknowledgement)
+
+
+def _acknowledgement_response(
+    acknowledgement: OperationsAlertAcknowledgement,
+) -> OpsAlertAcknowledgementResponse:
+    return OpsAlertAcknowledgementResponse(
+        id=acknowledgement.id,
+        ticket_id=acknowledgement.ticket_id,
+        alert_type=acknowledgement.alert_type,
+        acknowledged_by=acknowledgement.acknowledged_by_name,
+        acknowledged_at=acknowledgement.acknowledged_at,
     )

@@ -215,6 +215,7 @@ export type OperationsTicketReportData = {
 export type OperationsAlertSnapshotData = {
   generated_at: string;
   total: number;
+  unacknowledged: number;
   critical: number;
   high: number;
   medium: number;
@@ -233,7 +234,18 @@ export type OperationsAlertSnapshotData = {
     sla_status: string;
     sla_remaining_minutes: number;
     triggered_at: string;
+    acknowledged: boolean;
+    acknowledged_by: string | null;
+    acknowledged_at: string | null;
   }>;
+};
+
+export type OperationsAlertAcknowledgementData = {
+  id: string;
+  ticket_id: string;
+  alert_type: string;
+  acknowledged_by: string;
+  acknowledged_at: string;
 };
 
 export type OperationsAlertEvent =
@@ -488,6 +500,12 @@ export async function streamOperationsAlerts(
   }
   if (buffer.trim()) onEvent(JSON.parse(buffer) as OperationsAlertEvent);
 }
+
+export const acknowledgeOperationsAlert = (ticketId: string, alertType: string) =>
+  opsRequest<OperationsAlertAcknowledgementData>(
+    `/api/ops/alerts/${ticketId}/${alertType}/acknowledge`,
+    { method: 'POST' },
+  );
 
 export const getAgentProfile = (sessionToken: string) =>
   agentRequest<AgentProfileData>('/api/agent/me', sessionToken);

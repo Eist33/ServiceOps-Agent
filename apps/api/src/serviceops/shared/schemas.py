@@ -120,10 +120,19 @@ class OpsTicketReportResponse(BaseModel):
 class OpsAlertSnapshotResponse(BaseModel):
     generated_at: datetime
     total: int
+    unacknowledged: int
     critical: int
     high: int
     medium: int
     items: list[dict[str, Any]]
+
+
+class OpsAlertAcknowledgementResponse(BaseModel):
+    id: str
+    ticket_id: str
+    alert_type: str
+    acknowledged_by: str
+    acknowledged_at: datetime
 
 
 class AgentTicketNoteRequest(BaseModel):

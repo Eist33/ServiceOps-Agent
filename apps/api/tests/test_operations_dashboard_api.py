@@ -1,7 +1,9 @@
 import json
 from datetime import UTC, datetime, timedelta
 
-from serviceops.models import Ticket
+from sqlalchemy import select
+
+from serviceops.models import OperationsAlertAcknowledgement, Ticket
 from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
@@ -36,6 +38,11 @@ def test_operations_dashboard_requires_operator_identity(client):
 
     stream = client.get("/api/ops/alerts/stream?once=true")
     assert stream.status_code == 403
+
+    acknowledge = client.post(
+        "/api/ops/alerts/missing/HANDOFF_QUEUED/acknowledge"
+    )
+    assert acknowledge.status_code == 403
 
 
 def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
@@ -196,6 +203,7 @@ def test_operations_alerts_prioritize_sla_and_close_accepted_queue(client, db):
     assert response.status_code == 200
     snapshot = response.json()
     assert snapshot["total"] == 3
+    assert snapshot["unacknowledged"] == 3
     assert snapshot["critical"] == 1
     assert snapshot["high"] == 1
     assert snapshot["medium"] == 1
@@ -209,6 +217,7 @@ def test_operations_alerts_prioritize_sla_and_close_accepted_queue(client, db):
     assert snapshot["items"][1]["ticket_id"] == due_soon_id
     assert snapshot["items"][2]["support_group"] == "综合支持组"
     assert snapshot["items"][2]["customer_name"] == "林沐"
+    assert snapshot["items"][2]["acknowledged"] is False
 
     accepted = client.post(
         f"/api/agent/tickets/{queued_id}/accept",
@@ -218,6 +227,66 @@ def test_operations_alerts_prioritize_sla_and_close_accepted_queue(client, db):
     after_accept = client.get("/api/ops/alerts", headers=OPS_HEADERS).json()
     assert after_accept["total"] == 2
     assert queued_id not in {item["ticket_id"] for item in after_accept["items"]}
+
+
+def test_operations_alert_acknowledgement_is_durable_idempotent_and_state_scoped(
+    client,
+    db,
+):
+    conversation_id = _start_conversation(client)
+    ticket = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞",
+        },
+    ).json()
+    ticket_id = ticket["id"]
+    client.post(f"/api/tickets/{ticket_id}/handoff")
+    acknowledge_url = (
+        f"/api/ops/alerts/{ticket_id}/HANDOFF_QUEUED/acknowledge"
+    )
+
+    first = client.post(acknowledge_url, headers=OPS_HEADERS)
+    assert first.status_code == 200
+    acknowledgement = first.json()
+    assert acknowledgement["ticket_id"] == ticket_id
+    assert acknowledgement["alert_type"] == "HANDOFF_QUEUED"
+    assert acknowledgement["acknowledged_by"] == "许知夏"
+
+    repeated = client.post(acknowledge_url, headers=OPS_HEADERS)
+    assert repeated.status_code == 200
+    assert repeated.json()["id"] == acknowledgement["id"]
+    db.expire_all()
+    stored = list(db.scalars(select(OperationsAlertAcknowledgement)))
+    assert len(stored) == 1
+
+    snapshot = client.get("/api/ops/alerts", headers=OPS_HEADERS).json()
+    assert snapshot["unacknowledged"] == 0
+    assert snapshot["items"][0]["acknowledged"] is True
+    assert snapshot["items"][0]["acknowledged_by"] == "许知夏"
+    assert snapshot["items"][0]["acknowledged_at"] is not None
+
+    current_ticket = db.get(Ticket, ticket_id)
+    assert current_ticket is not None
+    current_ticket.sla_due_at = datetime.now(UTC) + timedelta(minutes=30)
+    db.commit()
+    upgraded = client.get("/api/ops/alerts", headers=OPS_HEADERS).json()
+    assert upgraded["unacknowledged"] == 1
+    assert upgraded["items"][0]["type"] == "SLA_DUE_SOON"
+    assert upgraded["items"][0]["acknowledged"] is False
+
+    stale = client.post(acknowledge_url, headers=OPS_HEADERS)
+    assert stale.status_code == 409
+    assert stale.json()["error"]["code"] == "ALERT_NOT_ACTIVE"
+    invalid = client.post(
+        f"/api/ops/alerts/{ticket_id}/UNKNOWN/acknowledge",
+        headers=OPS_HEADERS,
+    )
+    assert invalid.status_code == 422
+    assert invalid.json()["error"]["code"] == "INVALID_ALERT_TYPE"
 
 
 def test_operations_alert_stream_returns_protected_snapshot(client):

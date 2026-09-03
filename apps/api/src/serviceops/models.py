@@ -203,6 +203,24 @@ class TicketEvent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class OperationsAlertAcknowledgement(Base):
+    __tablename__ = "operations_alert_acknowledgements"
+    __table_args__ = (
+        UniqueConstraint(
+            "ticket_id",
+            "alert_type",
+            name="uq_operations_alert_ack_ticket_type",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"), index=True)
+    alert_type: Mapped[str] = mapped_column(String(40))
+    acknowledged_by_operator_id: Mapped[str] = mapped_column(ForeignKey("operators.id"))
+    acknowledged_by_name: Mapped[str] = mapped_column(String(80))
+    acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class RefundRequest(Base):
     __tablename__ = "refund_requests"
 

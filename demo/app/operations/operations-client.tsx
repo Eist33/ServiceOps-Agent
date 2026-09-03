@@ -10,6 +10,7 @@ import {
   BookOpenText,
   Bot,
   ChartNoAxesCombined,
+  CheckCircle2,
   CircleAlert,
   Clock3,
   Download,
@@ -57,6 +58,7 @@ import {
   type OperationsDashboardData,
   type OperationsAlertSnapshotData,
   type OperationsTicketReportData,
+  acknowledgeOperationsAlert,
   getOperationsDashboard,
   getOperationsTicketReport,
   streamOperationsAlerts,
@@ -75,6 +77,8 @@ export default function OperationsClient() {
   const [alertConnection, setAlertConnection] =
     useState<'CONNECTING' | 'LIVE' | 'RECONNECTING'>('CONNECTING');
   const [alertRevision, setAlertRevision] = useState(0);
+  const [acknowledgingAlertId, setAcknowledgingAlertId] = useState<string | null>(null);
+  const [acknowledgementError, setAcknowledgementError] = useState('');
   const [ticketReport, setTicketReport] =
     useState<OperationsTicketReportData | null>(null);
   const [supportGroup, setSupportGroup] = useState('ALL');
@@ -100,6 +104,44 @@ export default function OperationsClient() {
       cancelled = true;
     };
   }, []);
+
+  async function acknowledgeAlert(
+    alert: OperationsAlertSnapshotData['items'][number],
+  ) {
+    setAcknowledgingAlertId(alert.id);
+    setAcknowledgementError('');
+    try {
+      const acknowledgement = await acknowledgeOperationsAlert(
+        alert.ticket_id,
+        alert.type,
+      );
+      setAlertSnapshot((current) => {
+        if (!current) return current;
+        const target = current.items.find((item) => item.id === alert.id);
+        const newlyAcknowledged = target && !target.acknowledged ? 1 : 0;
+        return {
+          ...current,
+          unacknowledged: Math.max(0, current.unacknowledged - newlyAcknowledged),
+          items: current.items.map((item) =>
+            item.id === alert.id
+              ? {
+                  ...item,
+                  acknowledged: true,
+                  acknowledged_by: acknowledgement.acknowledged_by,
+                  acknowledged_at: acknowledgement.acknowledged_at,
+                }
+              : item,
+          ),
+        };
+      });
+    } catch (caught) {
+      setAcknowledgementError(
+        caught instanceof Error ? caught.message : '告警确认失败，请重试',
+      );
+    } finally {
+      setAcknowledgingAlertId(null);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -274,6 +316,9 @@ export default function OperationsClient() {
                 </div>
                 {alertSnapshot && (
                   <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <Badge className="bg-violet-50 text-violet-700" variant="secondary">
+                      待确认 {alertSnapshot.unacknowledged}
+                    </Badge>
                     <Badge className="bg-red-50 text-red-700" variant="secondary">
                       紧急 {alertSnapshot.critical}
                     </Badge>
@@ -287,6 +332,11 @@ export default function OperationsClient() {
                 )}
               </CardHeader>
               <CardContent className="pt-5">
+                {acknowledgementError && (
+                  <div className="mb-4 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-xs text-red-700" role="alert">
+                    <CircleAlert className="size-4" /> {acknowledgementError}
+                  </div>
+                )}
                 {!alertSnapshot ? (
                   <div className="flex justify-center py-8 text-sm text-muted-foreground">
                     <Loader2 className="mr-2 size-4 animate-spin" /> 正在建立实时告警连接…
@@ -294,7 +344,12 @@ export default function OperationsClient() {
                 ) : alertSnapshot.items.length ? (
                   <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
                     {alertSnapshot.items.map((alert) => (
-                      <AlertCard alert={alert} key={alert.id} />
+                      <AlertCard
+                        alert={alert}
+                        acknowledging={acknowledgingAlertId === alert.id}
+                        key={alert.id}
+                        onAcknowledge={() => void acknowledgeAlert(alert)}
+                      />
                     ))}
                   </div>
                 ) : (
@@ -588,8 +643,12 @@ function AlertConnectionBadge({
 
 function AlertCard({
   alert,
+  acknowledging,
+  onAcknowledge,
 }: {
   alert: OperationsAlertSnapshotData['items'][number];
+  acknowledging: boolean;
+  onAcknowledge: () => void;
 }) {
   const tone = {
     CRITICAL: 'border-red-200 bg-red-50/70 text-red-800',
@@ -620,6 +679,31 @@ function AlertCard({
         <span>{alert.order_number}</span>
         <span>{alert.support_group}</span>
         <span>{alert.priority}</span>
+      </div>
+      <div className="mt-3 flex min-h-7 items-center justify-end">
+        {alert.acknowledged ? (
+          <p
+            aria-label={`告警确认状态 ${alert.ticket_number}`}
+            className="flex items-center gap-1.5 text-[11px] font-medium"
+          >
+            <CheckCircle2 className="size-3.5" /> 已由 {alert.acknowledged_by} 确认 ·{' '}
+            {alert.acknowledged_at
+              ? new Date(alert.acknowledged_at).toLocaleString('zh-CN')
+              : ''}
+          </p>
+        ) : (
+          <Button
+            aria-label={`确认知悉 ${alert.ticket_number}`}
+            className="border-current/20 bg-white/80 text-current hover:bg-white"
+            disabled={acknowledging}
+            onClick={onAcknowledge}
+            size="xs"
+            variant="outline"
+          >
+            {acknowledging ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+            确认知悉
+          </Button>
+        )}
       </div>
     </article>
   );

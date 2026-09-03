@@ -9,9 +9,14 @@ from serviceops.models import Operator
 from serviceops.operations.service import operations_alerts
 
 
-def _alert_revision(alerts: list[dict]) -> tuple[tuple[str, str, int], ...]:
+def _alert_revision(alerts: list[dict]) -> tuple[tuple[str, str, int, bool], ...]:
     return tuple(
-        (alert["id"], alert["severity"], alert["sla_remaining_minutes"])
+        (
+            alert["id"],
+            alert["severity"],
+            alert["sla_remaining_minutes"],
+            alert["acknowledged"],
+        )
         for alert in alerts
     )
 
@@ -24,7 +29,7 @@ async def stream_operations_alerts(
     heartbeat_polls: int = 15,
     session_factory: sessionmaker[Session] = SessionLocal,
 ) -> AsyncIterator[str]:
-    previous_revision: tuple[tuple[str, str, int], ...] | None = None
+    previous_revision: tuple[tuple[str, str, int, bool], ...] | None = None
     unchanged_polls = 0
 
     while True:

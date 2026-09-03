@@ -30,6 +30,7 @@ from serviceops.knowledge.management import (
 )
 from serviceops.models import Customer, Operator
 from serviceops.operations.service import (
+    acknowledge_operations_alert,
     operations_alerts,
     operations_dashboard,
     operations_ticket_report,
@@ -47,6 +48,7 @@ from serviceops.shared.schemas import (
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
     MessageRequest,
+    OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
     OpsTicketReportResponse,
@@ -266,6 +268,18 @@ def create_app() -> FastAPI:
                 "X-Accel-Buffering": "no",
             },
         )
+
+    @app.post(
+        "/api/ops/alerts/{ticket_id}/{alert_type}/acknowledge",
+        response_model=OpsAlertAcknowledgementResponse,
+    )
+    def ops_alert_acknowledge(
+        ticket_id: str,
+        alert_type: str,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_operator),
+    ):
+        return acknowledge_operations_alert(db, operator, ticket_id, alert_type)
 
     @app.post("/api/ops/knowledge", response_model=KnowledgeArticleResponse)
     def publish_knowledge(
