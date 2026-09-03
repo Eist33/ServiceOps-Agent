@@ -152,6 +152,45 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await expect(page.getByText('沈清禾').last()).toBeVisible();
 });
 
+test('人工坐席无需刷新即可接收新工单', async ({ page, request }) => {
+  const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
+
+  await page.goto('/agent');
+  await expect(page.getByLabel('实时队列状态')).toContainText('实时已连接');
+  await expect(page.getByText('当前筛选下没有工单。')).toBeVisible();
+
+  const conversationResponse = await request.post(
+    'http://127.0.0.1:8000/api/conversations',
+    { headers: customerHeaders },
+  );
+  const conversation = await conversationResponse.json();
+  const ticketResponse = await request.post(
+    'http://127.0.0.1:8000/api/tickets',
+    {
+      headers: customerHeaders,
+      data: {
+        conversation_id: conversation.id,
+        order_number: 'ORD-20260828-1042',
+        ticket_type: 'SHIPPING',
+        reason: '物流停滞，需要人工联系承运商',
+      },
+    },
+  );
+  const ticket = await ticketResponse.json();
+  await request.post(
+    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    { headers: customerHeaders },
+  );
+
+  await expect(page.getByText(ticket.ticket_number).first()).toBeVisible({
+    timeout: 7000,
+  });
+  await expect(
+    page.getByLabel('待受理').getByText('1', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByLabel('实时队列状态')).toContainText('实时已连接');
+});
+
 test('退款必须明确确认后才执行', async ({ page }) => {
   await page
     .getByRole('button', { name: /申请退款/ })

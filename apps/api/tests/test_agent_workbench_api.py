@@ -1,3 +1,5 @@
+import json
+
 from serviceops.seed import (
     AGENT_SESSION_TOKEN,
     OPS_SESSION_TOKEN,
@@ -48,6 +50,29 @@ def test_agent_queue_requires_support_agent_identity(client):
     assert second_profile.status_code == 200
     assert second_profile.json()["name"] == "陆川"
     assert second_profile.json()["role"] == "SUPPORT_AGENT"
+
+
+def test_agent_queue_stream_requires_identity_and_returns_snapshot(client):
+    missing = client.get("/api/agent/tickets/stream?once=true")
+    assert missing.status_code == 403
+
+    wrong_role = client.get(
+        "/api/agent/tickets/stream?once=true",
+        headers={"X-Agent-Session": OPS_SESSION_TOKEN},
+    )
+    assert wrong_role.status_code == 403
+
+    ticket_id = _create_handed_off_ticket(client)
+    response = client.get(
+        "/api/agent/tickets/stream?once=true",
+        headers=AGENT_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    event = json.loads(response.text.strip())
+    assert event["type"] == "ticket_queue_snapshot"
+    assert event["tickets"][0]["id"] == ticket_id
+    assert event["tickets"][0]["work_state"] == "QUEUED"
 
 
 def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):

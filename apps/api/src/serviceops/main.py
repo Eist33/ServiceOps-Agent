@@ -63,6 +63,7 @@ from serviceops.workbench.service import (
     list_workbench_tickets,
     resolve_workbench_ticket,
 )
+from serviceops.workbench.streaming import stream_workbench_tickets
 
 
 @asynccontextmanager
@@ -146,6 +147,20 @@ def create_app() -> FastAPI:
         operator: Operator = Depends(current_support_agent),
     ):
         return list_workbench_tickets(db, operator)
+
+    @app.get("/api/agent/tickets/stream")
+    def agent_ticket_stream(
+        once: bool = False,
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return StreamingResponse(
+            stream_workbench_tickets(operator.id, once=once),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.post(
         "/api/agent/tickets/{ticket_id}/accept",

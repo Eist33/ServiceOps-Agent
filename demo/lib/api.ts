@@ -215,6 +215,10 @@ export type AgentTicketData = {
   }>;
 };
 
+export type AgentQueueEvent =
+  | { type: 'ticket_queue_snapshot'; tickets: AgentTicketData[] }
+  | { type: 'heartbeat' };
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
@@ -376,6 +380,38 @@ export const getAgentProfile = (sessionToken: string) =>
 
 export const listAgentTickets = (sessionToken: string) =>
   agentRequest<AgentTicketData[]>('/api/agent/tickets', sessionToken);
+
+export async function streamAgentTickets(
+  sessionToken: string,
+  onEvent: (event: AgentQueueEvent) => void,
+  signal: AbortSignal,
+) {
+  const response = await fetch(`${API_URL}/api/agent/tickets/stream`, {
+    headers: { 'X-Agent-Session': sessionToken },
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? '实时工单连接失败');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line) as AgentQueueEvent);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer) as AgentQueueEvent);
+}
 
 export const acceptAgentTicket = (sessionToken: string, ticketId: string) =>
   agentRequest<AgentTicketData>(

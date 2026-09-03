@@ -44,9 +44,11 @@ import {
   getAgentProfile,
   listAgentTickets,
   resolveAgentTicket,
+  streamAgentTickets,
 } from '@/lib/api';
 
 type QueueFilter = 'ACTIVE' | 'QUEUED' | 'MINE' | 'RESOLVED';
+type StreamStatus = 'CONNECTING' | 'LIVE' | 'RECONNECTING';
 
 const filterLabels: Array<{ id: QueueFilter; label: string }> = [
   { id: 'ACTIVE', label: '全部待办' },
@@ -68,6 +70,7 @@ export default function AgentWorkbenchClient() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('CONNECTING');
 
   async function load(targetSession = sessionToken) {
     setLoading(true);
@@ -118,6 +121,58 @@ export default function AgentWorkbenchClient() {
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let stopped = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | undefined;
+
+    function scheduleReconnect() {
+      if (stopped) return;
+      setStreamStatus('RECONNECTING');
+      retryTimer = setTimeout(() => void connect(true), 2000);
+    }
+
+    async function connect(isRetry = false) {
+      if (stopped) return;
+      setStreamStatus(isRetry ? 'RECONNECTING' : 'CONNECTING');
+      controller = new AbortController();
+      try {
+        await streamAgentTickets(
+          sessionToken,
+          (event) => {
+            if (stopped) return;
+            setStreamStatus('LIVE');
+            if (event.type !== 'ticket_queue_snapshot') return;
+            setTickets(event.tickets);
+            setSelectedId((current) =>
+              event.tickets.some((ticket) => ticket.id === current)
+                ? current
+                : (event.tickets[0]?.id ?? ''),
+            );
+            setLoading(false);
+          },
+          controller.signal,
+        );
+        scheduleReconnect();
+      } catch (caught) {
+        if (
+          stopped ||
+          (caught instanceof DOMException && caught.name === 'AbortError')
+        ) {
+          return;
+        }
+        scheduleReconnect();
+      }
+    }
+
+    void connect();
+    return () => {
+      stopped = true;
+      controller?.abort();
+      if (retryTimer) clearTimeout(retryTimer);
+    };
+  }, [sessionToken]);
 
   const visibleTickets = useMemo(
     () =>
@@ -172,7 +227,7 @@ export default function AgentWorkbenchClient() {
         const nextTickets = await listAgentTickets(sessionToken);
         setTickets(nextTickets);
       } catch {
-        // 保留原始受理冲突，等待坐席手动刷新即可。
+        // 保留原始受理冲突，实时流恢复后会同步最新状态。
       }
       setError(message);
     } finally {
@@ -236,9 +291,7 @@ export default function AgentWorkbenchClient() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
-              <span className="size-1.5 rounded-full bg-emerald-500" /> 在线
-            </Badge>
+            <RealtimeStatusBadge status={streamStatus} />
             <Select value={sessionToken} onValueChange={switchAgent}>
               <SelectTrigger className="h-8 w-[132px]" aria-label="切换演示坐席">
                 <SelectValue placeholder="选择坐席" />
@@ -264,7 +317,7 @@ export default function AgentWorkbenchClient() {
             </div>
             <h1 className="text-2xl font-semibold tracking-tight">人工工单队列</h1>
             <p className="mt-2 text-sm text-muted-foreground">
-              受理客户转人工工单，记录处理进展，并完成解决闭环。
+              新工单会实时进入队列；受理后可记录处理进展并完成解决闭环。
             </p>
           </div>
           <Button variant="outline" onClick={() => void load()} disabled={loading || busy}>
@@ -366,6 +419,24 @@ export default function AgentWorkbenchClient() {
         </section>
       </div>
     </main>
+  );
+}
+
+function RealtimeStatusBadge({ status }: { status: StreamStatus }) {
+  const config = {
+    CONNECTING: ['实时连接中', 'bg-amber-50 text-amber-700', 'bg-amber-500'],
+    LIVE: ['实时已连接', 'bg-emerald-50 text-emerald-700', 'bg-emerald-500'],
+    RECONNECTING: ['自动重连中', 'bg-rose-50 text-rose-700', 'bg-rose-500'],
+  }[status];
+
+  return (
+    <Badge
+      aria-label="实时队列状态"
+      variant="secondary"
+      className={config[1]}
+    >
+      <span className={`size-1.5 rounded-full ${config[2]}`} /> {config[0]}
+    </Badge>
   );
 }
 
