@@ -4,6 +4,7 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
+    Conversation,
     Customer,
     HandoffStatus,
     Operator,
@@ -15,7 +16,12 @@ from serviceops.models import (
 )
 from serviceops.shared.errors import ConflictError, NotFoundError, ValidationError
 from serviceops.shared.schemas import AgentTicketResponse
-from serviceops.tickets.service import TICKET_ROUTING, ticket_sla, transition_ticket
+from serviceops.tickets.service import (
+    TICKET_ROUTING,
+    ticket_message_snapshots,
+    ticket_sla,
+    transition_ticket,
+)
 
 
 def _get_ticket(db: Session, ticket_id: str) -> Ticket:
@@ -87,6 +93,7 @@ def workbench_ticket_response(
         version=ticket.version,
         created_at=ticket.created_at,
         updated_at=ticket.updated_at,
+        messages=ticket_message_snapshots(events),
         events=[
             {
                 "action": event.action,
@@ -213,6 +220,45 @@ def add_workbench_note(
             ticket_id=ticket.id,
             action="AGENT_NOTE_ADDED",
             detail=note,
+            actor=operator.name,
+            created_at=current_time,
+        )
+    )
+    db.commit()
+    db.refresh(ticket)
+    return workbench_ticket_response(
+        db,
+        ticket,
+        operator=operator,
+        now=current_time,
+    )
+
+
+def add_workbench_reply(
+    db: Session,
+    operator: Operator,
+    ticket_id: str,
+    content: str,
+    *,
+    now: datetime | None = None,
+) -> AgentTicketResponse:
+    ticket = _get_ticket(db, ticket_id)
+    _require_current_assignee(ticket, operator)
+    message = content.strip()
+    if not message:
+        raise ValidationError("EMPTY_TICKET_MESSAGE", "回复内容不能为空")
+
+    current_time = now or utcnow()
+    ticket.updated_at = current_time
+    ticket.version += 1
+    conversation = db.get(Conversation, ticket.conversation_id)
+    if conversation:
+        conversation.updated_at = current_time
+    db.add(
+        TicketEvent(
+            ticket_id=ticket.id,
+            action="AGENT_REPLY_SENT",
+            detail=message,
             actor=operator.name,
             created_at=current_time,
         )

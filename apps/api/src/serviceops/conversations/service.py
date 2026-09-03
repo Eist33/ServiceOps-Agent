@@ -71,23 +71,32 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
         )
     )
     ticket_ids = [ticket.id for ticket in tickets]
-    resolution_events = (
+    ticket_events = (
         list(
             db.scalars(
                 select(TicketEvent)
                 .where(
                     TicketEvent.ticket_id.in_(ticket_ids),
-                    TicketEvent.action == "STATUS_RESOLVED",
+                    TicketEvent.action.in_(
+                        [
+                            "STATUS_RESOLVED",
+                            "CUSTOMER_MESSAGE_SENT",
+                            "AGENT_REPLY_SENT",
+                        ]
+                    ),
                 )
-                .order_by(TicketEvent.created_at.desc())
+                .order_by(TicketEvent.created_at.asc())
             )
         )
         if ticket_ids
         else []
     )
+    events_by_ticket: dict[str, list[TicketEvent]] = {}
     resolution_by_ticket: dict[str, TicketEvent] = {}
-    for event in resolution_events:
-        resolution_by_ticket.setdefault(event.ticket_id, event)
+    for event in ticket_events:
+        events_by_ticket.setdefault(event.ticket_id, []).append(event)
+        if event.action == "STATUS_RESOLVED":
+            resolution_by_ticket[event.ticket_id] = event
     refunds = (
         list(
             db.scalars(
@@ -114,6 +123,7 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             ticket_snapshot(
                 item,
                 resolution_event=resolution_by_ticket.get(item.id),
+                message_events=events_by_ticket.get(item.id),
             )
             for item in tickets
         ],

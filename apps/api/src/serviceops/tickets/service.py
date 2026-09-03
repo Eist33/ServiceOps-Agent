@@ -32,6 +32,11 @@ TICKET_ROUTING = {
     "OTHER": (TicketPriority.P3.value, 8, "综合支持组"),
 }
 
+TICKET_MESSAGE_ACTIONS = {
+    "CUSTOMER_MESSAGE_SENT": "CUSTOMER",
+    "AGENT_REPLY_SENT": "SUPPORT_AGENT",
+}
+
 
 def _ticket_number(now: datetime | None = None) -> str:
     stamp = (now or utcnow()).strftime("%Y%m%d")
@@ -196,6 +201,43 @@ def cancel_human_handoff(
     return ticket
 
 
+def add_customer_ticket_message(
+    db: Session,
+    customer: Customer,
+    ticket_id: str,
+    content: str,
+    *,
+    now: datetime | None = None,
+) -> Ticket:
+    ticket = get_ticket(db, customer, ticket_id)
+    if ticket.status == TicketStatus.RESOLVED.value:
+        raise ConflictError("TICKET_ALREADY_RESOLVED", "已解决工单不能继续发送消息")
+    if ticket.handoff_status != HandoffStatus.ASSIGNED.value:
+        raise ConflictError("TICKET_NOT_HANDED_OFF", "请先将工单转人工再发送消息")
+    message = content.strip()
+    if not message:
+        raise ValidationError("EMPTY_TICKET_MESSAGE", "消息内容不能为空")
+
+    current_time = now or utcnow()
+    ticket.updated_at = current_time
+    ticket.version += 1
+    conversation = db.get(Conversation, ticket.conversation_id)
+    if conversation:
+        conversation.updated_at = current_time
+    db.add(
+        TicketEvent(
+            ticket_id=ticket.id,
+            action="CUSTOMER_MESSAGE_SENT",
+            detail=message,
+            actor=f"customer:{customer.name}",
+            created_at=current_time,
+        )
+    )
+    db.commit()
+    db.refresh(ticket)
+    return ticket
+
+
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
 
@@ -234,11 +276,30 @@ def _resolution_snapshot(event: TicketEvent | None) -> dict | None:
     }
 
 
+def ticket_message_snapshots(events: list[TicketEvent]) -> list[dict]:
+    return [
+        {
+            "id": event.id,
+            "sender_role": TICKET_MESSAGE_ACTIONS[event.action],
+            "sender_name": (
+                event.actor.removeprefix("customer:")
+                if event.action == "CUSTOMER_MESSAGE_SENT"
+                else event.actor
+            ),
+            "content": event.detail,
+            "created_at": event.created_at,
+        }
+        for event in events
+        if event.action in TICKET_MESSAGE_ACTIONS
+    ]
+
+
 def ticket_snapshot(
     ticket: Ticket,
     *,
     now: datetime | None = None,
     resolution_event: TicketEvent | None = None,
+    message_events: list[TicketEvent] | None = None,
 ) -> dict:
     sla_status, remaining_minutes = ticket_sla(ticket, now=now)
     return {
@@ -258,6 +319,7 @@ def ticket_snapshot(
         "sla_remaining_minutes": remaining_minutes,
         "reason": ticket.reason,
         "resolution": _resolution_snapshot(resolution_event),
+        "messages": ticket_message_snapshots(message_events or []),
         "created_at": ticket.created_at,
     }
 
@@ -275,7 +337,11 @@ def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
         None,
     )
     return TicketResponse(
-        **ticket_snapshot(ticket, resolution_event=resolution_event),
+        **ticket_snapshot(
+            ticket,
+            resolution_event=resolution_event,
+            message_events=events,
+        ),
         evidence=ticket.evidence,
         updated_at=ticket.updated_at,
         events=[

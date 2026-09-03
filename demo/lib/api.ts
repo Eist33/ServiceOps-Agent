@@ -26,6 +26,14 @@ export type AgentEvent = {
   payload: Record<string, unknown>;
 };
 
+export type TicketMessageData = {
+  id: string;
+  sender_role: 'CUSTOMER' | 'SUPPORT_AGENT';
+  sender_name: string;
+  content: string;
+  created_at: string;
+};
+
 export type TicketData = {
   id: string;
   ticket_number: string;
@@ -47,6 +55,7 @@ export type TicketData = {
     handled_by: string;
     resolved_at: string;
   } | null;
+  messages: TicketMessageData[];
   created_at: string;
 };
 
@@ -207,6 +216,7 @@ export type AgentTicketData = {
   version: number;
   created_at: string;
   updated_at: string;
+  messages: TicketMessageData[];
   events: Array<{
     action: string;
     detail: string;
@@ -345,6 +355,15 @@ export const cancelTicketHandoff = (ticketId: string) =>
     { method: 'POST' },
   );
 
+export const sendCustomerTicketMessage = (ticketId: string, content: string) =>
+  request<TicketData & { events: unknown[] }>(
+    `/api/tickets/${ticketId}/messages`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+  );
+
 export const confirmRefund = (refundId: string, key: string) =>
   request<ConversationState['refunds'][number]>(
     `/api/refund-requests/${refundId}/confirm`,
@@ -427,6 +446,20 @@ export const addAgentTicketNote = (
 ) =>
   agentRequest<AgentTicketData>(
     `/api/agent/tickets/${ticketId}/notes`,
+    sessionToken,
+    {
+      method: 'POST',
+      body: JSON.stringify({ content }),
+    },
+  );
+
+export const sendAgentTicketMessage = (
+  sessionToken: string,
+  ticketId: string,
+  content: string,
+) =>
+  agentRequest<AgentTicketData>(
+    `/api/agent/tickets/${ticketId}/messages`,
     sessionToken,
     {
       method: 'POST',

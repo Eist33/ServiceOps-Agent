@@ -12,6 +12,7 @@ import {
   MessageSquareText,
   Package,
   RefreshCw,
+  Send,
   ShieldCheck,
   TicketCheck,
   UserRoundCheck,
@@ -44,6 +45,7 @@ import {
   getAgentProfile,
   listAgentTickets,
   resolveAgentTicket,
+  sendAgentTicketMessage,
   streamAgentTickets,
 } from '@/lib/api';
 
@@ -66,6 +68,7 @@ export default function AgentWorkbenchClient() {
   const [selectedId, setSelectedId] = useState('');
   const [filter, setFilter] = useState<QueueFilter>('ACTIVE');
   const [note, setNote] = useState('');
+  const [reply, setReply] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -207,6 +210,7 @@ export default function AgentWorkbenchClient() {
     if (!nextSession || nextSession === sessionToken || busy) return;
     setSessionToken(nextSession);
     setNote('');
+    setReply('');
     setNotice('');
     setError('');
     await load(nextSession);
@@ -251,6 +255,27 @@ export default function AgentWorkbenchClient() {
       setNotice('处理记录已保存');
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '保存处理记录失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function sendReply() {
+    if (!selected || !reply.trim() || busy) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updated = await sendAgentTicketMessage(
+        sessionToken,
+        selected.id,
+        reply.trim(),
+      );
+      updateTicket(updated);
+      setReply('');
+      setNotice('回复已发送给客户');
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '回复客户失败');
     } finally {
       setBusy(false);
     }
@@ -380,6 +405,7 @@ export default function AgentWorkbenchClient() {
                         onSelect={() => {
                           setSelectedId(ticket.id);
                           setNote('');
+                          setReply('');
                           setNotice('');
                         }}
                       />
@@ -399,10 +425,13 @@ export default function AgentWorkbenchClient() {
             <TicketWorkspace
               ticket={selected}
               note={note}
+              reply={reply}
               busy={busy}
               onNoteChange={setNote}
+              onReplyChange={setReply}
               onAccept={acceptTicket}
               onAddNote={addNote}
+              onSendReply={sendReply}
               onResolve={resolveTicket}
             />
           ) : (
@@ -510,18 +539,24 @@ function TicketQueueItem({
 function TicketWorkspace({
   ticket,
   note,
+  reply,
   busy,
   onNoteChange,
+  onReplyChange,
   onAccept,
   onAddNote,
+  onSendReply,
   onResolve,
 }: {
   ticket: AgentTicketData;
   note: string;
+  reply: string;
   busy: boolean;
   onNoteChange: (value: string) => void;
+  onReplyChange: (value: string) => void;
   onAccept: () => Promise<void>;
   onAddNote: () => Promise<void>;
+  onSendReply: () => Promise<void>;
   onResolve: () => Promise<void>;
 }) {
   return (
@@ -553,6 +588,59 @@ function TicketWorkspace({
               <Info label="当前负责人" value={ticket.assignee_name ?? '待分派'} />
               <Info label="SLA" value={slaLabel(ticket)} />
             </dl>
+          </section>
+
+          <section className="rounded-xl border p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <MessageSquareText className="size-4 text-primary" /> 客户沟通
+            </div>
+            <div className="mt-3 space-y-2" aria-label="工单沟通记录">
+              {ticket.messages.length ? (
+                ticket.messages.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-5 ${
+                      item.sender_role === 'SUPPORT_AGENT'
+                        ? 'ml-auto bg-primary text-primary-foreground'
+                        : 'border bg-muted/40'
+                    }`}
+                  >
+                    <p className="mb-1 text-[10px] opacity-70">
+                      {item.sender_name} ·{' '}
+                      {new Date(item.created_at).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    <p>{item.content}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="py-3 text-center text-xs text-muted-foreground">
+                  暂无客户补充消息。
+                </p>
+              )}
+            </div>
+            {ticket.work_state === 'IN_PROGRESS' && ticket.is_mine && (
+              <div className="mt-3 border-t pt-3">
+                <Textarea
+                  aria-label="回复客户"
+                  value={reply}
+                  onChange={(event) => onReplyChange(event.target.value)}
+                  placeholder="向客户同步核查进展或处理方案……"
+                  maxLength={500}
+                />
+                <Button
+                  className="mt-2"
+                  variant="outline"
+                  disabled={busy || !reply.trim()}
+                  onClick={() => void onSendReply()}
+                >
+                  {busy ? <Loader2 className="animate-spin" /> : <Send />}
+                  发送给客户
+                </Button>
+              </div>
+            )}
           </section>
 
           {ticket.work_state === 'QUEUED' ? (
@@ -696,6 +784,8 @@ function eventLabel(action: string) {
     HUMAN_HANDOFF_ACCEPTED: '坐席受理',
     HUMAN_HANDOFF_CANCELLED: '撤销人工接管',
     AGENT_NOTE_ADDED: '新增处理记录',
+    CUSTOMER_MESSAGE_SENT: '客户发送消息',
+    AGENT_REPLY_SENT: '坐席回复客户',
     STATUS_RESOLVED: '工单解决',
   };
   return labels[action] ?? action;

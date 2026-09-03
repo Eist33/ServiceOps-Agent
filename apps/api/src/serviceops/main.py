@@ -47,10 +47,12 @@ from serviceops.shared.schemas import (
     RefundResponse,
     ShippingResponse,
     TicketCreateRequest,
+    TicketMessageRequest,
     TicketResponse,
 )
 from serviceops.shipping.service import get_shipping_status
 from serviceops.tickets.service import (
+    add_customer_ticket_message,
     cancel_human_handoff,
     create_ticket,
     get_ticket,
@@ -60,6 +62,7 @@ from serviceops.tickets.service import (
 from serviceops.workbench.service import (
     accept_workbench_ticket,
     add_workbench_note,
+    add_workbench_reply,
     list_workbench_tickets,
     resolve_workbench_ticket,
 )
@@ -184,6 +187,18 @@ def create_app() -> FastAPI:
         operator: Operator = Depends(current_support_agent),
     ):
         return add_workbench_note(db, operator, ticket_id, body.content)
+
+    @app.post(
+        "/api/agent/tickets/{ticket_id}/messages",
+        response_model=AgentTicketResponse,
+    )
+    def add_agent_ticket_message(
+        ticket_id: str,
+        body: TicketMessageRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return add_workbench_reply(db, operator, ticket_id, body.content)
 
     @app.post(
         "/api/agent/tickets/{ticket_id}/resolve",
@@ -321,6 +336,16 @@ def create_app() -> FastAPI:
         customer: Customer = Depends(current_customer),
     ):
         return ticket_response(db, get_ticket(db, customer, ticket_id))
+
+    @app.post("/api/tickets/{ticket_id}/messages", response_model=TicketResponse)
+    def add_customer_ticket_message_endpoint(
+        ticket_id: str,
+        body: TicketMessageRequest,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        ticket = add_customer_ticket_message(db, customer, ticket_id, body.content)
+        return ticket_response(db, ticket)
 
     @app.post("/api/tickets/{ticket_id}/handoff", response_model=TicketResponse)
     def handoff_ticket_endpoint(

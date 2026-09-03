@@ -55,6 +55,7 @@ import {
   getShipping,
   handoffTicket,
   loadConversation,
+  sendCustomerTicketMessage,
   sendMessage,
 } from '@/lib/api';
 
@@ -161,6 +162,7 @@ export default function DemoClient() {
   const [initializing, setInitializing] = useState(true);
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  const [ticketMessageBusy, setTicketMessageBusy] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -452,6 +454,21 @@ export default function DemoClient() {
     }
   }
 
+  async function sendTicketMessage(ticketId: string, content: string) {
+    if (ticketMessageBusy) return;
+    setTicketMessageBusy(true);
+    setError('');
+    try {
+      await sendCustomerTicketMessage(ticketId, content);
+      await refreshState(conversationId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '消息发送失败');
+      throw caught;
+    } finally {
+      setTicketMessageBusy(false);
+    }
+  }
+
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
   useEffect(() => {
@@ -466,7 +483,7 @@ export default function DemoClient() {
       void refreshState(conversationId).catch(() => {
         // 短暂断线时保留最后一次成功状态，下一轮继续同步。
       });
-    }, 5000);
+    }, 2000);
     return () => window.clearInterval(intervalId);
   }, [
     activeTicket?.handoff_status,
@@ -606,8 +623,10 @@ export default function DemoClient() {
         onOpenChange={setTicketDialogOpen}
         ticket={activeTicket}
         busy={handoffBusy}
+        messageBusy={ticketMessageBusy}
         onHandoff={transferTicketToHuman}
         onCancelHandoff={returnTicketToAgent}
+        onSendMessage={sendTicketMessage}
       />
     </main>
   );
@@ -1101,21 +1120,36 @@ function TicketDialog({
   onOpenChange,
   ticket,
   busy,
+  messageBusy,
   onHandoff,
   onCancelHandoff,
+  onSendMessage,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ticket: ConversationState['tickets'][number] | null;
   busy: boolean;
+  messageBusy: boolean;
   onHandoff: (ticketId: string) => Promise<void>;
   onCancelHandoff: (ticketId: string) => Promise<void>;
+  onSendMessage: (ticketId: string, content: string) => Promise<void>;
 }) {
+  const [message, setMessage] = useState('');
   const resolved = ticket?.status === 'RESOLVED';
   const assigned = ticket?.handoff_status === 'ASSIGNED';
+  const showConversation = Boolean(ticket && (assigned || ticket.messages.length));
+  async function submitMessage() {
+    if (!ticket || !message.trim() || messageBusy) return;
+    try {
+      await onSendMessage(ticket.id, message.trim());
+      setMessage('');
+    } catch {
+      // 页面顶部会展示服务端返回的具体错误，保留输入便于重试。
+    }
+  }
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <div className="flex items-center gap-3">
             <span
@@ -1182,6 +1216,60 @@ function TicketDialog({
               </p>
             </div>
           </div>
+        )}
+        {showConversation && ticket && (
+          <section className="rounded-xl border p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold">
+              <MessageSquareText className="size-4 text-primary" /> 与人工客服沟通
+            </div>
+            <div className="mt-3 space-y-2" aria-label="工单沟通记录">
+              {ticket.messages.length ? (
+                ticket.messages.map((item) => (
+                  <div
+                    key={item.id}
+                    className={`max-w-[88%] rounded-xl px-3 py-2 text-xs leading-5 ${
+                      item.sender_role === 'CUSTOMER'
+                        ? 'ml-auto bg-primary text-primary-foreground'
+                        : 'border bg-muted/40'
+                    }`}
+                  >
+                    <p className="mb-1 text-[10px] opacity-70">
+                      {item.sender_name} ·{' '}
+                      {new Date(item.created_at).toLocaleTimeString('zh-CN', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    <p>{item.content}</p>
+                  </div>
+                ))
+              ) : (
+                <p className="py-3 text-center text-xs text-muted-foreground">
+                  可在这里补充信息，受理坐席会实时看到。
+                </p>
+              )}
+            </div>
+            {assigned && (
+              <>
+                <Textarea
+                  className="mt-3 min-h-20"
+                  aria-label="发给客服的消息"
+                  value={message}
+                  onChange={(event) => setMessage(event.target.value)}
+                  placeholder="补充物流情况或向客服询问进展……"
+                  maxLength={500}
+                />
+                <Button
+                  className="mt-2 w-full"
+                  disabled={messageBusy || !message.trim()}
+                  onClick={() => void submitMessage()}
+                >
+                  {messageBusy ? <Loader2 className="animate-spin" /> : <Send />}
+                  发送给客服
+                </Button>
+              </>
+            )}
+          </section>
         )}
         {ticket?.resolution && (
           <section className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">

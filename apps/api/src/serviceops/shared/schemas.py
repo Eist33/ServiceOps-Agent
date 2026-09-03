@@ -114,6 +114,18 @@ class AgentTicketResolveRequest(BaseModel):
     resolution: str = Field(min_length=2, max_length=500)
 
 
+class TicketMessageRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=500)
+
+
+class TicketMessageResponse(BaseModel):
+    id: str
+    sender_role: str
+    sender_name: str
+    content: str
+    created_at: datetime
+
+
 class AgentTicketResponse(BaseModel):
     id: str
     ticket_number: str
@@ -137,6 +149,7 @@ class AgentTicketResponse(BaseModel):
     version: int
     created_at: datetime
     updated_at: datetime
+    messages: list[TicketMessageResponse] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 
@@ -175,6 +188,7 @@ class TicketResponse(BaseModel):
     evidence: dict[str, Any]
     created_at: datetime
     updated_at: datetime
+    messages: list[TicketMessageResponse] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 

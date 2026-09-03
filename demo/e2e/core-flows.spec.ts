@@ -191,6 +191,65 @@ test('人工坐席无需刷新即可接收新工单', async ({ page, request }) 
   await expect(page.getByLabel('实时队列状态')).toContainText('实时已连接');
 });
 
+test('客户与受理坐席可双向同步工单消息', async ({ page, request, context }) => {
+  const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
+  const conversationResponse = await request.post(
+    'http://127.0.0.1:8000/api/conversations',
+    { headers: customerHeaders },
+  );
+  const conversation = await conversationResponse.json();
+  const ticketResponse = await request.post(
+    'http://127.0.0.1:8000/api/tickets',
+    {
+      headers: customerHeaders,
+      data: {
+        conversation_id: conversation.id,
+        order_number: 'ORD-20260828-1042',
+        ticket_type: 'SHIPPING',
+        reason: '物流停滞，需要人工联系承运商',
+      },
+    },
+  );
+  const ticket = await ticketResponse.json();
+  await request.post(
+    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    { headers: customerHeaders },
+  );
+
+  await page.evaluate(
+    ({ conversationId }) =>
+      localStorage.setItem('harbor-support-conversation', conversationId),
+    { conversationId: conversation.id },
+  );
+  await page.reload();
+  await expect(page.getByText(ticket.ticket_number).last()).toBeVisible();
+  await page.getByRole('button', { name: '查看工单详情' }).click();
+
+  const agentPage = await context.newPage();
+  await agentPage.goto('/agent');
+  await expect(agentPage.getByText(ticket.ticket_number).first()).toBeVisible();
+  await agentPage.getByRole('button', { name: '受理此工单' }).click();
+  await expect(agentPage.getByLabel('回复客户')).toBeVisible();
+
+  await page.getByLabel('发给客服的消息').fill('包裹今晚能恢复转运吗？');
+  await page.getByRole('button', { name: '发送给客服' }).click();
+  await expect(
+    agentPage
+      .getByLabel('工单沟通记录')
+      .getByText('包裹今晚能恢复转运吗？'),
+  ).toBeVisible({ timeout: 7000 });
+
+  await agentPage
+    .getByLabel('回复客户')
+    .fill('已联系承运商，预计今晚恢复转运。');
+  await agentPage.getByRole('button', { name: '发送给客户' }).click();
+  await expect(
+    page
+      .getByLabel('工单沟通记录')
+      .getByText('已联系承运商，预计今晚恢复转运。'),
+  ).toBeVisible({ timeout: 7000 });
+});
+
 test('退款必须明确确认后才执行', async ({ page }) => {
   await page
     .getByRole('button', { name: /申请退款/ })

@@ -75,6 +75,88 @@ def test_agent_queue_stream_requires_identity_and_returns_snapshot(client):
     assert event["tickets"][0]["work_state"] == "QUEUED"
 
 
+def test_customer_and_assignee_exchange_visible_ticket_messages(client, other_client):
+    conversation_id = client.post("/api/conversations").json()["id"]
+    ticket = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞，需要人工联系承运商",
+        },
+    ).json()
+
+    before_handoff = client.post(
+        f"/api/tickets/{ticket['id']}/messages",
+        json={"content": "有人处理吗？"},
+    )
+    assert before_handoff.status_code == 409
+    assert before_handoff.json()["error"]["code"] == "TICKET_NOT_HANDED_OFF"
+
+    client.post(f"/api/tickets/{ticket['id']}/handoff")
+    forbidden_customer = other_client.post(
+        f"/api/tickets/{ticket['id']}/messages",
+        json={"content": "尝试访问他人工单"},
+    )
+    assert forbidden_customer.status_code == 403
+
+    customer_message = client.post(
+        f"/api/tickets/{ticket['id']}/messages",
+        json={"content": "请问今晚可以恢复转运吗？"},
+    )
+    assert customer_message.status_code == 200
+    assert customer_message.json()["messages"] == [
+        {
+            "id": customer_message.json()["messages"][0]["id"],
+            "sender_role": "CUSTOMER",
+            "sender_name": "林沐",
+            "content": "请问今晚可以恢复转运吗？",
+            "created_at": customer_message.json()["messages"][0]["created_at"],
+        }
+    ]
+
+    accepted = client.post(
+        f"/api/agent/tickets/{ticket['id']}/accept",
+        headers=AGENT_HEADERS,
+    )
+    assert accepted.status_code == 200
+    assert accepted.json()["messages"][0]["sender_role"] == "CUSTOMER"
+
+    wrong_agent = client.post(
+        f"/api/agent/tickets/{ticket['id']}/messages",
+        headers=SECOND_AGENT_HEADERS,
+        json={"content": "尝试回复其他坐席工单"},
+    )
+    assert wrong_agent.status_code == 409
+    assert wrong_agent.json()["error"]["code"] == "TICKET_NOT_ACCEPTED"
+
+    reply = client.post(
+        f"/api/agent/tickets/{ticket['id']}/messages",
+        headers=AGENT_HEADERS,
+        json={"content": "已联系承运商，预计今晚恢复转运。"},
+    )
+    assert reply.status_code == 200
+    assert [message["sender_role"] for message in reply.json()["messages"]] == [
+        "CUSTOMER",
+        "SUPPORT_AGENT",
+    ]
+
+    client.post(
+        f"/api/agent/tickets/{ticket['id']}/notes",
+        headers=AGENT_HEADERS,
+        json={"content": "内部备注：明早再次检查轨迹。"},
+    )
+    customer_detail = client.get(f"/api/tickets/{ticket['id']}").json()
+    assert customer_detail["messages"][1]["sender_name"] == "沈清禾"
+    assert customer_detail["messages"][1]["content"] == (
+        "已联系承运商，预计今晚恢复转运。"
+    )
+    assert "内部备注" not in str(customer_detail["messages"])
+    conversation_state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert conversation_state["tickets"][0]["messages"] == customer_detail["messages"]
+
+
 def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     ticket_id = _create_handed_off_ticket(client)
 
