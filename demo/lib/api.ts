@@ -42,6 +42,11 @@ export type TicketData = {
   sla_status: string;
   sla_remaining_minutes: number;
   reason: string;
+  resolution: {
+    summary: string;
+    handled_by: string;
+    resolved_at: string;
+  } | null;
   created_at: string;
 };
 

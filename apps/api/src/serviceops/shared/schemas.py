@@ -147,6 +147,12 @@ class TicketCreateRequest(BaseModel):
     reason: str = Field(min_length=2, max_length=500)
 
 
+class TicketResolution(BaseModel):
+    summary: str
+    handled_by: str
+    resolved_at: datetime
+
+
 class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -165,6 +171,7 @@ class TicketResponse(BaseModel):
     sla_status: str
     sla_remaining_minutes: int
     reason: str
+    resolution: TicketResolution | None = None
     evidence: dict[str, Any]
     created_at: datetime
     updated_at: datetime

@@ -453,6 +453,26 @@ export default function DemoClient() {
 
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
+  useEffect(() => {
+    if (
+      !conversationId ||
+      activeTicket?.handoff_status !== 'ASSIGNED' ||
+      activeTicket.status === 'RESOLVED'
+    ) {
+      return;
+    }
+    const intervalId = window.setInterval(() => {
+      void refreshState(conversationId).catch(() => {
+        // 短暂断线时保留最后一次成功状态，下一轮继续同步。
+      });
+    }, 5000);
+    return () => window.clearInterval(intervalId);
+  }, [
+    activeTicket?.handoff_status,
+    activeTicket?.status,
+    conversationId,
+    refreshState,
+  ]);
   const currentScenario = useMemo(
     () => scenarios.find((item) => item.id === activeScenario) ?? scenarios[1],
     [activeScenario],
@@ -978,6 +998,22 @@ function ContextPanel({
                 </dd>
               </div>
             </dl>
+            {ticket.resolution && (
+              <div className="mt-3 rounded-xl border border-emerald-200 bg-white p-3">
+                <p className="flex items-center gap-1.5 text-[11px] font-semibold text-emerald-800">
+                  <CheckCircle2 className="size-3.5" /> 客服处理结果
+                </p>
+                <p className="mt-2 line-clamp-3 text-xs leading-5 text-foreground">
+                  {ticket.resolution.summary}
+                </p>
+                <p className="mt-2 text-[10px] text-muted-foreground">
+                  {ticket.resolution.handled_by} ·{' '}
+                  {new Date(ticket.resolution.resolved_at).toLocaleString(
+                    'zh-CN',
+                  )}
+                </p>
+              </div>
+            )}
             <Button
               className="mt-3 w-full"
               size="sm"
@@ -1145,6 +1181,32 @@ function TicketDialog({
               </p>
             </div>
           </div>
+        )}
+        {ticket?.resolution && (
+          <section className="rounded-xl border border-emerald-100 bg-emerald-50 p-4">
+            <div className="flex items-center gap-2 text-sm font-semibold text-emerald-900">
+              <CheckCircle2 className="size-4" /> 客服处理方案
+            </div>
+            <p className="mt-3 text-sm leading-6 text-emerald-950">
+              {ticket.resolution.summary}
+            </p>
+            <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-emerald-200 pt-3 text-xs">
+              <div>
+                <dt className="text-emerald-700">处理人</dt>
+                <dd className="mt-1 font-semibold">
+                  {ticket.resolution.handled_by}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-emerald-700">完成时间</dt>
+                <dd className="mt-1 font-semibold">
+                  {new Date(ticket.resolution.resolved_at).toLocaleString(
+                    'zh-CN',
+                  )}
+                </dd>
+              </div>
+            </dl>
+          </section>
         )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>

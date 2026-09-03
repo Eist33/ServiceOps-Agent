@@ -7,6 +7,7 @@ from serviceops.models import (
     Message,
     RefundRequest,
     Ticket,
+    TicketEvent,
     ToolInvocation,
     utcnow,
 )
@@ -70,6 +71,23 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
         )
     )
     ticket_ids = [ticket.id for ticket in tickets]
+    resolution_events = (
+        list(
+            db.scalars(
+                select(TicketEvent)
+                .where(
+                    TicketEvent.ticket_id.in_(ticket_ids),
+                    TicketEvent.action == "STATUS_RESOLVED",
+                )
+                .order_by(TicketEvent.created_at.desc())
+            )
+        )
+        if ticket_ids
+        else []
+    )
+    resolution_by_ticket: dict[str, TicketEvent] = {}
+    for event in resolution_events:
+        resolution_by_ticket.setdefault(event.ticket_id, event)
     refunds = (
         list(
             db.scalars(
@@ -92,7 +110,13 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             }
             for item in messages
         ],
-        "tickets": [ticket_snapshot(item) for item in tickets],
+        "tickets": [
+            ticket_snapshot(
+                item,
+                resolution_event=resolution_by_ticket.get(item.id),
+            )
+            for item in tickets
+        ],
         "refunds": [
             {
                 "id": item.id,

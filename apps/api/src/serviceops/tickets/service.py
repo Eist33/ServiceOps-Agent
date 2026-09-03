@@ -213,7 +213,33 @@ def ticket_sla(ticket: Ticket, *, now: datetime | None = None) -> tuple[str, int
     return "ON_TRACK", remaining_minutes
 
 
-def ticket_snapshot(ticket: Ticket, *, now: datetime | None = None) -> dict:
+def _customer_visible_actor(actor: str) -> str:
+    if actor.startswith("customer:") or actor in {
+        "agent",
+        "system",
+        "routing-service",
+        "refund-service",
+    }:
+        return "Harbor Support"
+    return actor
+
+
+def _resolution_snapshot(event: TicketEvent | None) -> dict | None:
+    if not event:
+        return None
+    return {
+        "summary": event.detail,
+        "handled_by": _customer_visible_actor(event.actor),
+        "resolved_at": event.created_at,
+    }
+
+
+def ticket_snapshot(
+    ticket: Ticket,
+    *,
+    now: datetime | None = None,
+    resolution_event: TicketEvent | None = None,
+) -> dict:
     sla_status, remaining_minutes = ticket_sla(ticket, now=now)
     return {
         "id": ticket.id,
@@ -231,6 +257,7 @@ def ticket_snapshot(ticket: Ticket, *, now: datetime | None = None) -> dict:
         "sla_status": sla_status,
         "sla_remaining_minutes": remaining_minutes,
         "reason": ticket.reason,
+        "resolution": _resolution_snapshot(resolution_event),
         "created_at": ticket.created_at,
     }
 
@@ -243,8 +270,12 @@ def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
             .order_by(TicketEvent.created_at.asc())
         )
     )
+    resolution_event = next(
+        (item for item in reversed(events) if item.action == "STATUS_RESOLVED"),
+        None,
+    )
     return TicketResponse(
-        **ticket_snapshot(ticket),
+        **ticket_snapshot(ticket, resolution_event=resolution_event),
         evidence=ticket.evidence,
         updated_at=ticket.updated_at,
         events=[
@@ -255,5 +286,6 @@ def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
                 "created_at": item.created_at.isoformat(),
             }
             for item in events
+            if item.action != "AGENT_NOTE_ADDED"
         ],
     )

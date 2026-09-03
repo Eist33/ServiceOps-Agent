@@ -114,6 +114,27 @@ def test_agent_can_accept_note_and_resolve_handed_off_ticket(client):
     assert completed["work_state"] == "RESOLVED"
     assert completed["events"][-1]["action"] == "STATUS_RESOLVED"
 
+    customer_state = client.get(
+        f"/api/conversations/{completed['conversation_id']}"
+    )
+    assert customer_state.status_code == 200
+    customer_ticket = customer_state.json()["tickets"][0]
+    assert customer_ticket["resolution"] == {
+        "summary": "承运商已恢复转运，客户接受继续等待。",
+        "handled_by": "沈清禾",
+        "resolved_at": customer_ticket["resolution"]["resolved_at"],
+    }
+
+    customer_detail = client.get(f"/api/tickets/{ticket_id}")
+    assert customer_detail.status_code == 200
+    assert customer_detail.json()["resolution"]["summary"] == (
+        "承运商已恢复转运，客户接受继续等待。"
+    )
+    assert all(
+        event["action"] != "AGENT_NOTE_ADDED"
+        for event in customer_detail.json()["events"]
+    )
+
 
 def test_only_first_agent_can_claim_and_operate_ticket(client):
     ticket_id = _create_handed_off_ticket(client)

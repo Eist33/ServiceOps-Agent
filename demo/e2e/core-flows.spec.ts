@@ -51,6 +51,14 @@ test('新会话创建独立物流工单', async ({ page }) => {
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await expect(businessContext.getByText(/TK-/)).toBeVisible();
   await expect(businessContext.getByText('处理中')).toBeVisible();
+  await expect
+    .poll(async () => {
+      const nextNumber = (await businessContext.textContent())?.match(
+        /TK-\d{8}-[A-Z0-9]{6}/,
+      )?.[0];
+      return Boolean(nextNumber && nextNumber !== firstTicketNumber);
+    })
+    .toBe(true);
   const secondTicketNumber = (await businessContext.textContent())?.match(
     /TK-\d{8}-[A-Z0-9]{6}/,
   )?.[0];
@@ -97,6 +105,11 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
     },
   );
   const ticket = await ticketResponse.json();
+  await page.evaluate(
+    ({ conversationId }) =>
+      localStorage.setItem('harbor-support-conversation', conversationId),
+    { conversationId: conversation.id },
+  );
   await request.post(
     `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
     { headers: customerHeaders },
@@ -127,6 +140,16 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await page.getByRole('button', { name: '标记已解决' }).click();
   await expect(page.getByText(/已解决/).first()).toBeVisible();
   await expect(page.getByText('工单已完成')).toBeVisible();
+
+  await page.goto('/');
+  await expect(page.getByText('客服处理结果')).toBeVisible();
+  await expect(
+    page.getByText('承运商已恢复转运，客户接受继续等待。'),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '查看工单详情' }).click();
+  await expect(page.getByText('客服处理方案')).toBeVisible();
+  await expect(page.getByText('处理人')).toBeVisible();
+  await expect(page.getByText('沈清禾').last()).toBeVisible();
 });
 
 test('退款必须明确确认后才执行', async ({ page }) => {
