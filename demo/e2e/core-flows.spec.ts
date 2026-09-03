@@ -373,3 +373,44 @@ test('运营人员可筛选处理组与 SLA 并导出当前工单', async ({ pag
   expect(csv).toContain('物流专员组');
   expect(csv).not.toContain(other.ticket_number);
 });
+
+test('运营看板无需刷新即可接收并关闭主动告警', async ({ page, request }) => {
+  const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
+  await page.goto('/operations');
+  await expect(page.getByLabel('实时告警状态')).toContainText('实时已连接');
+  await expect(page.getByText('当前没有需要运营介入的主动告警。')).toBeVisible();
+
+  const conversationResponse = await request.post(
+    'http://127.0.0.1:8000/api/conversations',
+    { headers: customerHeaders },
+  );
+  const conversation = await conversationResponse.json();
+  const ticketResponse = await request.post('http://127.0.0.1:8000/api/tickets', {
+    headers: customerHeaders,
+    data: {
+      conversation_id: conversation.id,
+      order_number: 'ORD-20260828-1042',
+      ticket_type: 'SHIPPING',
+      reason: '物流停滞，需要人工介入',
+    },
+  });
+  const ticket = await ticketResponse.json();
+  await request.post(`http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`, {
+    headers: customerHeaders,
+  });
+
+  const alert = page.locator(`[data-alert-ticket="${ticket.id}"]`);
+  await expect(alert).toBeVisible();
+  await expect(alert).toContainText('人工工单等待受理');
+  await expect(alert).toContainText(ticket.ticket_number);
+  await expect(alert).toContainText('物流专员组');
+
+  const accepted = await request.post(
+    `http://127.0.0.1:8000/api/agent/tickets/${ticket.id}/accept`,
+    { headers: { 'X-Agent-Session': 'demo-support-agent-session' } },
+  );
+  expect(accepted.ok()).toBeTruthy();
+  await expect(alert).toBeHidden();
+  await expect(page.getByText('当前没有需要运营介入的主动告警。')).toBeVisible();
+  await expect(page.getByLabel('实时告警状态')).toContainText('实时已连接');
+});

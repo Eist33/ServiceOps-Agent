@@ -1,9 +1,11 @@
+import json
 from datetime import UTC, datetime, timedelta
 
 from serviceops.models import Ticket
-from serviceops.seed import OPS_SESSION_TOKEN
+from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
+AGENT_HEADERS = {"X-Agent-Session": AGENT_SESSION_TOKEN}
 
 
 def _start_conversation(client) -> str:
@@ -28,6 +30,12 @@ def test_operations_dashboard_requires_operator_identity(client):
 
     report = client.get("/api/ops/tickets")
     assert report.status_code == 403
+
+    alerts = client.get("/api/ops/alerts")
+    assert alerts.status_code == 403
+
+    stream = client.get("/api/ops/alerts/stream?once=true")
+    assert stream.status_code == 403
 
 
 def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
@@ -150,3 +158,89 @@ def test_ticket_report_filters_by_support_group_and_sla(client, db):
     )
     assert invalid.status_code == 422
     assert invalid.json()["error"]["code"] == "INVALID_SLA_STATUS"
+
+
+def test_operations_alerts_prioritize_sla_and_close_accepted_queue(client, db):
+    conversation_id = _start_conversation(client)
+    created = {}
+    for ticket_type, reason in [
+        ("SHIPPING", "物流停滞"),
+        ("ORDER", "订单信息异常"),
+        ("REFUND", "退款审核异常"),
+        ("OTHER", "其他售后问题"),
+    ]:
+        response = client.post(
+            "/api/tickets",
+            json={
+                "conversation_id": conversation_id,
+                "order_number": "ORD-20260828-1042",
+                "ticket_type": ticket_type,
+                "reason": reason,
+            },
+        )
+        assert response.status_code == 200
+        created[ticket_type] = response.json()
+
+    due_soon_id = created["SHIPPING"]["id"]
+    queued_id = created["OTHER"]["id"]
+    assert client.post(f"/api/tickets/{due_soon_id}/handoff").status_code == 200
+    assert client.post(f"/api/tickets/{queued_id}/handoff").status_code == 200
+    due_soon = db.get(Ticket, due_soon_id)
+    breached = db.get(Ticket, created["REFUND"]["id"])
+    assert due_soon is not None and breached is not None
+    due_soon.sla_due_at = datetime.now(UTC) + timedelta(minutes=30)
+    breached.sla_due_at = datetime.now(UTC) - timedelta(minutes=5)
+    db.commit()
+
+    response = client.get("/api/ops/alerts", headers=OPS_HEADERS)
+    assert response.status_code == 200
+    snapshot = response.json()
+    assert snapshot["total"] == 3
+    assert snapshot["critical"] == 1
+    assert snapshot["high"] == 1
+    assert snapshot["medium"] == 1
+    assert [item["type"] for item in snapshot["items"]] == [
+        "SLA_BREACHED",
+        "SLA_DUE_SOON",
+        "HANDOFF_QUEUED",
+    ]
+    assert snapshot["items"][0]["ticket_number"] == created["REFUND"]["ticket_number"]
+    assert snapshot["items"][1]["sla_remaining_minutes"] in {29, 30}
+    assert snapshot["items"][1]["ticket_id"] == due_soon_id
+    assert snapshot["items"][2]["support_group"] == "综合支持组"
+    assert snapshot["items"][2]["customer_name"] == "林沐"
+
+    accepted = client.post(
+        f"/api/agent/tickets/{queued_id}/accept",
+        headers=AGENT_HEADERS,
+    )
+    assert accepted.status_code == 200
+    after_accept = client.get("/api/ops/alerts", headers=OPS_HEADERS).json()
+    assert after_accept["total"] == 2
+    assert queued_id not in {item["ticket_id"] for item in after_accept["items"]}
+
+
+def test_operations_alert_stream_returns_protected_snapshot(client):
+    conversation_id = _start_conversation(client)
+    ticket = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞",
+        },
+    ).json()
+    client.post(f"/api/tickets/{ticket['id']}/handoff")
+
+    response = client.get(
+        "/api/ops/alerts/stream?once=true",
+        headers=OPS_HEADERS,
+    )
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    event = json.loads(response.text.strip())
+    assert event["type"] == "operations_alert_snapshot"
+    assert event["snapshot"]["total"] == 1
+    assert event["snapshot"]["items"][0]["ticket_id"] == ticket["id"]
+    assert event["snapshot"]["items"][0]["type"] == "HANDOFF_QUEUED"

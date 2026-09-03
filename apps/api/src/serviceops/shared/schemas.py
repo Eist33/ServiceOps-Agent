@@ -117,6 +117,15 @@ class OpsTicketReportResponse(BaseModel):
     items: list[dict[str, Any]]
 
 
+class OpsAlertSnapshotResponse(BaseModel):
+    generated_at: datetime
+    total: int
+    critical: int
+    high: int
+    medium: int
+    items: list[dict[str, Any]]
+
+
 class AgentTicketNoteRequest(BaseModel):
     content: str = Field(min_length=1, max_length=500)
 

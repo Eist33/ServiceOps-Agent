@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 import {
   Activity,
   ArrowLeft,
+  BellRing,
   BookOpenText,
   Bot,
   ChartNoAxesCombined,
@@ -16,6 +17,7 @@ import {
   Loader2,
   ReceiptText,
   TicketCheck,
+  TriangleAlert,
   UserRoundCheck,
 } from 'lucide-react';
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
@@ -53,9 +55,11 @@ import {
 } from '@/components/ui/table';
 import {
   type OperationsDashboardData,
+  type OperationsAlertSnapshotData,
   type OperationsTicketReportData,
   getOperationsDashboard,
   getOperationsTicketReport,
+  streamOperationsAlerts,
 } from '@/lib/api';
 
 const activityConfig = {
@@ -66,6 +70,11 @@ const activityConfig = {
 
 export default function OperationsClient() {
   const [dashboard, setDashboard] = useState<OperationsDashboardData | null>(null);
+  const [alertSnapshot, setAlertSnapshot] =
+    useState<OperationsAlertSnapshotData | null>(null);
+  const [alertConnection, setAlertConnection] =
+    useState<'CONNECTING' | 'LIVE' | 'RECONNECTING'>('CONNECTING');
+  const [alertRevision, setAlertRevision] = useState(0);
   const [ticketReport, setTicketReport] =
     useState<OperationsTicketReportData | null>(null);
   const [supportGroup, setSupportGroup] = useState('ALL');
@@ -117,7 +126,50 @@ export default function OperationsClient() {
     return () => {
       cancelled = true;
     };
-  }, [slaStatus, supportGroup]);
+  }, [alertRevision, slaStatus, supportGroup]);
+
+  useEffect(() => {
+    let disposed = false;
+    let controller: AbortController | null = null;
+    let retryTimer: number | undefined;
+
+    async function connect() {
+      if (disposed) return;
+      controller = new AbortController();
+      try {
+        await streamOperationsAlerts(
+          (event) => {
+            if (disposed) return;
+            setAlertConnection('LIVE');
+            if (event.type === 'operations_alert_snapshot') {
+              setAlertSnapshot(event.snapshot);
+              setAlertRevision((revision) => revision + 1);
+              void getOperationsDashboard().then(
+                (data) => {
+                  if (!disposed) setDashboard(data);
+                },
+                () => undefined,
+              );
+            }
+          },
+          controller.signal,
+        );
+      } catch (caught) {
+        if (caught instanceof DOMException && caught.name === 'AbortError') return;
+      }
+      if (!disposed) {
+        setAlertConnection('RECONNECTING');
+        retryTimer = window.setTimeout(() => void connect(), 1500);
+      }
+    }
+
+    void connect();
+    return () => {
+      disposed = true;
+      controller?.abort();
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, []);
 
   return (
     <main className="min-h-screen bg-[#f5f8f9] text-foreground">
@@ -206,6 +258,50 @@ export default function OperationsClient() {
                 tone="bg-emerald-50 text-emerald-700"
               />
             </section>
+
+            <Card aria-label="主动告警中心" className="overflow-hidden">
+              <CardHeader className="border-b bg-[linear-gradient(115deg,#fff7ed_0%,#ffffff_46%,#f0f9ff_100%)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <BellRing className="size-5 text-amber-600" /> 主动告警中心
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      自动推送待受理人工工单与 SLA 风险，无需刷新页面
+                    </CardDescription>
+                  </div>
+                  <AlertConnectionBadge status={alertConnection} />
+                </div>
+                {alertSnapshot && (
+                  <div className="mt-3 flex flex-wrap gap-2 text-xs">
+                    <Badge className="bg-red-50 text-red-700" variant="secondary">
+                      紧急 {alertSnapshot.critical}
+                    </Badge>
+                    <Badge className="bg-amber-50 text-amber-700" variant="secondary">
+                      高优先 {alertSnapshot.high}
+                    </Badge>
+                    <Badge className="bg-sky-50 text-sky-700" variant="secondary">
+                      待受理 {alertSnapshot.medium}
+                    </Badge>
+                  </div>
+                )}
+              </CardHeader>
+              <CardContent className="pt-5">
+                {!alertSnapshot ? (
+                  <div className="flex justify-center py-8 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" /> 正在建立实时告警连接…
+                  </div>
+                ) : alertSnapshot.items.length ? (
+                  <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                    {alertSnapshot.items.map((alert) => (
+                      <AlertCard alert={alert} key={alert.id} />
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={BellRing} text="当前没有需要运营介入的主动告警。" />
+                )}
+              </CardContent>
+            </Card>
 
             <section className="grid gap-6 xl:grid-cols-[minmax(0,1.7fr)_minmax(300px,0.8fr)]">
               <Card>
@@ -467,6 +563,66 @@ function downloadTicketReport(report: OperationsTicketReportData) {
   link.click();
   link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function AlertConnectionBadge({
+  status,
+}: {
+  status: 'CONNECTING' | 'LIVE' | 'RECONNECTING';
+}) {
+  const state = {
+    CONNECTING: ['正在连接', 'bg-amber-50 text-amber-700', 'bg-amber-500'],
+    LIVE: ['实时已连接', 'bg-emerald-50 text-emerald-700', 'bg-emerald-500'],
+    RECONNECTING: ['正在重连', 'bg-red-50 text-red-700', 'bg-red-500'],
+  }[status];
+  return (
+    <Badge
+      aria-label="实时告警状态"
+      className={`gap-2 ${state[1]}`}
+      variant="secondary"
+    >
+      <span className={`size-2 rounded-full ${state[2]}`} /> {state[0]}
+    </Badge>
+  );
+}
+
+function AlertCard({
+  alert,
+}: {
+  alert: OperationsAlertSnapshotData['items'][number];
+}) {
+  const tone = {
+    CRITICAL: 'border-red-200 bg-red-50/70 text-red-800',
+    HIGH: 'border-amber-200 bg-amber-50/70 text-amber-800',
+    MEDIUM: 'border-sky-200 bg-sky-50/70 text-sky-800',
+  }[alert.severity];
+  const severityLabel = {
+    CRITICAL: '紧急',
+    HIGH: '高优先',
+    MEDIUM: '待受理',
+  }[alert.severity];
+  return (
+    <article className={`rounded-xl border p-4 ${tone}`} data-alert-ticket={alert.ticket_id}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-semibold">{alert.title}</p>
+            <p className="mt-1 text-xs leading-5 opacity-85">{alert.detail}</p>
+          </div>
+        </div>
+        <Badge className="shrink-0 bg-white/75 text-current" variant="secondary">
+          {severityLabel}
+        </Badge>
+      </div>
+      <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-current/10 pt-3 text-[11px] opacity-80">
+        <span>{alert.customer_name}</span>
+        <span>{alert.order_number}</span>
+        <span>{alert.support_group}</span>
+        <span>{alert.priority}</span>
+      </div>
+    </article>
+  );
 }
 
 function csvCell(value: string) {

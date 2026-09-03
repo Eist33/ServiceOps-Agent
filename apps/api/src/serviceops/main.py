@@ -29,7 +29,12 @@ from serviceops.knowledge.management import (
     publish_knowledge_article,
 )
 from serviceops.models import Customer, Operator
-from serviceops.operations.service import operations_dashboard, operations_ticket_report
+from serviceops.operations.service import (
+    operations_alerts,
+    operations_dashboard,
+    operations_ticket_report,
+)
+from serviceops.operations.streaming import stream_operations_alerts
 from serviceops.orders.service import get_order
 from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
@@ -42,6 +47,7 @@ from serviceops.shared.schemas import (
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
     MessageRequest,
+    OpsAlertSnapshotResponse,
     OpsDashboardResponse,
     OpsTicketReportResponse,
     OrderResponse,
@@ -238,6 +244,27 @@ def create_app() -> FastAPI:
             db,
             support_group=support_group,
             sla_status=sla_status,
+        )
+
+    @app.get("/api/ops/alerts", response_model=OpsAlertSnapshotResponse)
+    def ops_alert_index(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operator),
+    ):
+        return operations_alerts(db)
+
+    @app.get("/api/ops/alerts/stream")
+    def ops_alert_stream(
+        once: bool = False,
+        operator: Operator = Depends(current_operator),
+    ):
+        return StreamingResponse(
+            stream_operations_alerts(operator.id, once=once),
+            media_type="application/x-ndjson",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",
+            },
         )
 
     @app.post("/api/ops/knowledge", response_model=KnowledgeArticleResponse)

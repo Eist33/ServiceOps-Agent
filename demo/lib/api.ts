@@ -212,6 +212,34 @@ export type OperationsTicketReportData = {
   }>;
 };
 
+export type OperationsAlertSnapshotData = {
+  generated_at: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  items: Array<{
+    id: string;
+    type: 'SLA_BREACHED' | 'SLA_DUE_SOON' | 'HANDOFF_QUEUED';
+    severity: 'CRITICAL' | 'HIGH' | 'MEDIUM';
+    title: string;
+    detail: string;
+    ticket_id: string;
+    ticket_number: string;
+    order_number: string;
+    customer_name: string;
+    support_group: string;
+    priority: string;
+    sla_status: string;
+    sla_remaining_minutes: number;
+    triggered_at: string;
+  }>;
+};
+
+export type OperationsAlertEvent =
+  | { type: 'operations_alert_snapshot'; snapshot: OperationsAlertSnapshotData }
+  | { type: 'heartbeat' };
+
 export type AgentProfileData = {
   id: string;
   name: string;
@@ -429,6 +457,37 @@ export const getOperationsTicketReport = (filters?: {
   const query = params.size ? `?${params.toString()}` : '';
   return opsRequest<OperationsTicketReportData>(`/api/ops/tickets${query}`);
 };
+
+export async function streamOperationsAlerts(
+  onEvent: (event: OperationsAlertEvent) => void,
+  signal: AbortSignal,
+) {
+  const response = await fetch(`${API_URL}/api/ops/alerts/stream`, {
+    headers: { 'X-Ops-Session': OPS_SESSION },
+    signal,
+  });
+  if (!response.ok || !response.body) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? '实时运营告警连接失败');
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value, { stream: !done });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (line.trim()) onEvent(JSON.parse(line) as OperationsAlertEvent);
+    }
+    if (done) break;
+  }
+  if (buffer.trim()) onEvent(JSON.parse(buffer) as OperationsAlertEvent);
+}
 
 export const getAgentProfile = (sessionToken: string) =>
   agentRequest<AgentProfileData>('/api/agent/me', sessionToken);
