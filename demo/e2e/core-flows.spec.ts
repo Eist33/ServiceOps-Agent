@@ -185,6 +185,26 @@ test('运营人员发布知识新版本并替换当前条款', async ({ page }) 
   await expect(page.getByText('历史版本').first()).toBeVisible();
 });
 
+test('顶部导航可在客户、运营和知识工作台间稳定跳转', async ({ page }) => {
+  await page.getByRole('link', { name: '运营看板' }).click();
+  await expect(page).toHaveURL(/\/operations$/);
+  await expect(page.getByRole('heading', { name: '运营质量总览' })).toBeVisible();
+
+  await page.getByRole('link', { name: '知识运营' }).click();
+  await expect(page).toHaveURL(/\/knowledge$/);
+  await expect(page.getByRole('heading', { name: '知识条款与版本' })).toBeVisible();
+
+  await page.getByRole('link', { name: '返回客服工作台' }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(
+    page.getByRole('heading', { name: '售后服务助手', exact: true }),
+  ).toBeVisible();
+
+  await page.getByRole('link', { name: '知识运营' }).click();
+  await page.getByRole('link', { name: '运营看板' }).click();
+  await expect(page).toHaveURL(/\/operations$/);
+});
+
 test('运营看板汇总真实工单、人工接管与工具质量', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
   await page

@@ -126,6 +126,6 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 - 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
 - MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
 - 当前坐席工作台使用两个固定演示坐席并支持原子受理冲突保护，尚未接入企业账号、排班和实时人工聊天。
-- 当前 Docker/Vinext 环境中，客户工作台右上角的“运营看板”和“知识运营”链接可能无法完成页面跳转；可直接访问 `/operations` 与 `/knowledge`，下一版本修复导航兼容性。
+- 当前坐席工作台通过页面刷新读取新进入队列的工单，尚未提供服务端实时推送；下一版本补齐无需刷新即可收单的实时队列。
 - 当前运营看板用于单实例演示数据，不包含跨团队筛选、导出、告警通知或长期数据仓库。
 - 暂不包含多渠道、多 Agent、消息队列或 Elasticsearch。

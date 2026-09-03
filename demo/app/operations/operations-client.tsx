@@ -1,7 +1,8 @@
 'use client';
 
+// oxlint-disable next/no-html-link-for-pages -- Vinext Docker navigation requires full document requests.
+
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import {
   Activity,
   ArrowLeft,
@@ -89,15 +90,15 @@ export default function OperationsClient() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Link
+            <a
               className={buttonVariants({ variant: 'outline', size: 'sm' })}
               href="/knowledge"
             >
               <BookOpenText /> 知识运营
-            </Link>
-            <Link className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
+            </a>
+            <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
               <ArrowLeft /> 客服工作台
-            </Link>
+            </a>
           </div>
         </div>
       </header>

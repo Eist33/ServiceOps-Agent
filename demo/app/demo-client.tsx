@@ -1,7 +1,8 @@
 'use client';
 
+// oxlint-disable next/no-html-link-for-pages -- Vinext Docker navigation requires full document requests.
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import Link from 'next/link';
 import {
   Bot,
   BookOpenText,
@@ -627,20 +628,20 @@ function Header() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <Link
+        <a
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
           href="/operations"
         >
           <ChartNoAxesCombined />
           <span className="hidden sm:inline">运营看板</span>
-        </Link>
-        <Link
+        </a>
+        <a
           className={buttonVariants({ variant: 'outline', size: 'sm' })}
           href="/knowledge"
         >
           <BookOpenText />
           <span className="hidden sm:inline">知识运营</span>
-        </Link>
+        </a>
         <Badge
           className="hidden bg-emerald-50 text-emerald-700 sm:inline-flex"
           variant="secondary"
