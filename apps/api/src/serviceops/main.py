@@ -404,22 +404,31 @@ def create_app() -> FastAPI:
         db: Session = Depends(get_db),
         customer: Customer = Depends(current_customer),
     ):
-        if settings.agent_mode == "openai" and settings.openai_api_key:
-            from serviceops.agent.openai_runtime import OpenAISupportAgent
+        async def stream() -> AsyncIterator[str]:
+            if settings.agent_mode.strip().lower() in {"model", "openai"}:
+                from serviceops.agent.openai_runtime import ModelSupportAgent
+                from serviceops.agent.providers import ModelProviderConfiguration
 
-            events = await OpenAISupportAgent(db, customer, settings.openai_model).run(
-                conversation_id,
-                body.content,
-                trace_id=request.state.trace_id,
-            )
-        else:
+                configuration = ModelProviderConfiguration.from_settings(settings)
+                async for event in ModelSupportAgent(
+                    db,
+                    customer,
+                    configuration,
+                ).stream(
+                    conversation_id,
+                    body.content,
+                    trace_id=request.state.trace_id,
+                ):
+                    yield (
+                        json.dumps(event.model_dump(mode="json"), ensure_ascii=False)
+                        + "\n"
+                    )
+                return
             events = DeterministicSupportAgent(db, customer).run(
                 conversation_id,
                 body.content,
                 trace_id=request.state.trace_id,
             )
-
-        async def stream() -> AsyncIterator[str]:
             for event in events:
                 yield json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n"
 

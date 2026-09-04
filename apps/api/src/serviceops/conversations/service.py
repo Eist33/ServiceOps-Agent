@@ -35,8 +35,20 @@ def get_conversation(db: Session, customer: Customer, conversation_id: str) -> C
     return conversation
 
 
-def add_message(db: Session, conversation: Conversation, role: str, content: str) -> Message:
-    message = Message(conversation_id=conversation.id, role=role, content=content)
+def add_message(
+    db: Session,
+    conversation: Conversation,
+    role: str,
+    content: str,
+    *,
+    message_id: str | None = None,
+) -> Message:
+    message = Message(
+        id=message_id,
+        conversation_id=conversation.id,
+        role=role,
+        content=content,
+    )
     conversation.updated_at = utcnow()
     db.add(message)
     db.commit()

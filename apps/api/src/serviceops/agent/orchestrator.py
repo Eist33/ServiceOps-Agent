@@ -24,7 +24,7 @@ from serviceops.conversations.service import (
     set_pending_action,
 )
 from serviceops.knowledge.service import search_knowledge_base
-from serviceops.models import Customer, Order
+from serviceops.models import Customer, Message, Order
 from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.refunds.service import create_refund_request
 from serviceops.shared.errors import DomainError
@@ -56,9 +56,12 @@ class DeterministicSupportAgent:
         content: str,
         *,
         trace_id: str | None = None,
+        _user_message: Message | None = None,
     ) -> list[AgentEvent]:
         conversation = get_conversation(self.db, self.customer, conversation_id)
-        user_message = add_message(self.db, conversation, "user", content)
+        if _user_message is not None and _user_message.conversation_id != conversation_id:
+            raise ValueError("预先持久化的消息不属于当前会话")
+        user_message = _user_message or add_message(self.db, conversation, "user", content)
         trace_id = trace_id or str(uuid.uuid4())
         events: list[AgentEvent] = []
         normalized = content.lower()

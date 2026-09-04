@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from serviceops.agent import openai_runtime
+from serviceops.agent.providers import ModelProviderConfiguration
 from serviceops.conversations.service import create_conversation
 from serviceops.identity.service import resolve_customer
 from serviceops.main import create_app
@@ -112,11 +113,20 @@ def test_unhandled_errors_return_generic_traceable_response(caplog):
 def test_openai_runtime_uses_explicit_sensitive_tracing_setting(db, monkeypatch):
     captured = {}
 
-    async def fake_run(agent, content, *, context, run_config):
-        captured["run_config"] = run_config
-        return SimpleNamespace(final_output="已根据工具证据回答")
+    class FakeRun:
+        final_output = "已根据工具证据回答"
+        context_wrapper = SimpleNamespace(
+            usage=SimpleNamespace(input_tokens=10, output_tokens=6, total_tokens=16)
+        )
 
-    monkeypatch.setattr(openai_runtime.Runner, "run", fake_run)
+        async def stream_events(self):
+            if False:
+                yield None
+
+    def fake_run(agent, content, *, context, run_config, max_turns):
+        captured["run_config"] = run_config
+        return FakeRun()
+
     monkeypatch.setattr(
         openai_runtime,
         "get_settings",
@@ -124,7 +134,20 @@ def test_openai_runtime_uses_explicit_sensitive_tracing_setting(db, monkeypatch)
     )
     customer = resolve_customer(db, DEMO_SESSION_TOKEN)
     conversation = create_conversation(db, customer)
-    runtime = openai_runtime.OpenAISupportAgent(db, customer, "gpt-5.4-mini")
+    configuration = ModelProviderConfiguration(
+        provider="openai",
+        api_style="responses",
+        base_url="https://api.openai.com/v1",
+        model_name="gpt-5.4-mini",
+        api_key="sk-test",
+    ).validated()
+    runtime = openai_runtime.ModelSupportAgent(
+        db,
+        customer,
+        configuration,
+        sdk_provider=object(),
+        runner_streamed=fake_run,
+    )
 
     events = asyncio.run(
         runtime.run(

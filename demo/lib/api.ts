@@ -16,6 +16,7 @@ export type AgentEvent = {
     | 'business_state_changed'
     | 'order_selection_required'
     | 'active_order_changed'
+    | 'model_fallback'
     | 'error'
     | 'response_completed';
   conversation_id: string;

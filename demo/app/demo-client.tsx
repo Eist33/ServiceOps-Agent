@@ -95,7 +95,8 @@ type TimelineItem =
       method: string;
       reason: string;
     }
-  | { id: string; kind: 'error'; text: string };
+  | { id: string; kind: 'error'; text: string }
+  | { id: string; kind: 'notice'; text: string };
 
 const STORAGE_KEY = 'harbor-support-conversation';
 const suggestedPrompts = [
@@ -292,16 +293,41 @@ export default function DemoClient() {
           reason: String(event.payload.reason),
         },
       ]);
-    } else if (event.type === 'message_delta') {
+    } else if (event.type === 'model_fallback') {
       setItems((current) => [
         ...current,
         {
-          id: event.message_id,
-          kind: 'message',
-          role: 'agent',
-          text: String(event.payload.delta),
+          id: `fallback-${event.trace_id}`,
+          kind: 'notice',
+          text: String(event.payload.message),
         },
       ]);
+    } else if (event.type === 'message_delta') {
+      const delta = String(event.payload.delta);
+      setItems((current) => {
+        const existing = current.findIndex(
+          (item) =>
+            item.kind === 'message' &&
+            item.role === 'agent' &&
+            item.id === event.message_id,
+        );
+        if (existing === -1) {
+          return [
+            ...current,
+            {
+              id: event.message_id,
+              kind: 'message',
+              role: 'agent',
+              text: delta,
+            },
+          ];
+        }
+        return current.map((item, index) =>
+          index === existing && item.kind === 'message'
+            ? { ...item, text: `${item.text}${delta}` }
+            : item,
+        );
+      });
     } else if (event.type === 'error') {
       setItems((current) => [
         ...current,
@@ -935,6 +961,13 @@ function TimelineEntry({
           {item.summary ?? '正在执行服务端校验…'}
           {item.duration ? ` · ${item.duration}ms` : ''}
         </p>
+      </div>
+    );
+  if (item.kind === 'notice')
+    return (
+      <div className="ml-11 flex gap-2 rounded-xl border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">
+        <RotateCcw className="size-4" />
+        {item.text}
       </div>
     );
   if (item.kind === 'error')

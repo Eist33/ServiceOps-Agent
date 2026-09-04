@@ -14,6 +14,7 @@ class EventType(StrEnum):
     BUSINESS_STATE_CHANGED = "business_state_changed"
     ORDER_SELECTION_REQUIRED = "order_selection_required"
     ACTIVE_ORDER_CHANGED = "active_order_changed"
+    MODEL_FALLBACK = "model_fallback"
     ERROR = "error"
     RESPONSE_COMPLETED = "response_completed"
 

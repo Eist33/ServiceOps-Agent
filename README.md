@@ -16,13 +16,13 @@ Harbor Support 是一个可运行、可测试、可重复演示的电商售后�
 - 客户结果回传：人工工单解决后，客户侧自动同步最终处理方案、处理人和完成时间；坐席内部处理备注保持仅坐席可见。
 - 退款确认：Agent 只能创建待确认申请；确认接口重新校验身份、金额、状态与幂等键。
 - 结构化事件：前端只消费 `tool_started`、`tool_completed`、`approval_required` 等事件，不解析自然语言中的业务状态。
-- 持久化审计：保存对话、消息、工单、退款、工具调用、耗时、错误与关联 ID。
+- 持久化审计：保存对话、消息、工单、退款、工具调用与模型调用元数据；模型审计仅记录供应商、模型、耗时、Token、错误类型和追踪号，不保存 Prompt、回答或密钥。
 - 安全可观测性：请求、Agent 事件和工具审计共享同一 `trace_id`；访问日志采用不记录请求正文与身份令牌的结构化字段，嵌套敏感字段递归脱敏，未知错误只向客户端返回可追踪的通用错误。
 - 知识运营：独立运营身份可查看条款历史、发布新版本和停用条款；版本变更立即进入客服检索范围。
 - 运营看板：实时汇总活动工单、人工接管、SLA 风险、退款、工具成功率与知识版本；支持按处理组和 SLA 状态下钻工单、导出当前筛选结果，并主动推送待受理与 SLA 风险告警。运营人员可确认知悉，确认人和时间持久化保存，风险升级后重新进入待确认状态。
 - 自动质检：对人工坐席已解决工单执行可解释的确定性评分，检查 SLA、首次回复、内部处理记录和最终解决方案完整度，并逐单展示缺失项。
 - 客户满意度：人工工单解决后，工单所属客户可提交一次 1–5 星评价与可选意见；评价持久化到服务端并进入运营质量看板，重复请求保持幂等，其他客户或未解决工单无法评价。
-- 双运行模式：默认确定性模式无需 API Key；配置后可切换 OpenAI Agents SDK 单 Agent 模式。
+- 双运行模式：默认确定性模式无需 API Key；配置后可通过通用适配层使用 DeepSeek Responses API。模型超时、限流或熔断且尚未发生写操作时自动降级，退款确认等高风险边界不交给模型。
 
 ## 工程结构
 
@@ -36,8 +36,8 @@ apps/api/                 FastAPI 模块化单体
     orders/ shipping/     订单与确定性物流异常
     tickets/ refunds/     状态机、审批与幂等
     workbench/            坐席队列、受理、处理记录与解决
-    agent/                 确定性运行器与 Agents SDK 运行器
-    audit/                 工具调用脱敏审计
+    agent/                 确定性运行器、通用模型适配与 Agents SDK 流式运行器
+    audit/                 工具与模型调用脱敏审计
 demo/                     Vinext/React 客户端（Sites 与 Docker 兼容）
 docs/                     产品、技术、流程与交付文档
 docker-compose.yml        web、api、PostgreSQL/pgvector
@@ -67,17 +67,24 @@ Windows 用户也可以在 Docker Desktop 启动后直接运行：
 
 三个服务都使用 `unless-stopped` 自动恢复策略。首次执行启动命令后，只要没有手动停止项目，后续电脑重启并打开 Docker Desktop 时，数据库、后端和网页会按健康检查顺序自动恢复；等待 Docker Desktop 显示引擎运行后即可重新访问网页。
 
-### 启用 OpenAI Agents SDK 模式
+### 启用 DeepSeek 模型模式
 
 复制根目录 `.env.example` 为 `.env`，填写服务端密钥：
 
 ```env
-AGENT_MODE=openai
-OPENAI_API_KEY=your-server-side-key
-OPENAI_MODEL=gpt-5.4-mini
+AGENT_MODE=model
+MODEL_PROVIDER=deepseek
+MODEL_API_STYLE=responses
+MODEL_BASE_URL=https://api.deepseek.com
+MODEL_NAME=deepseek-v4-flash
+MODEL_API_KEY=your-server-side-deepseek-key
 ```
 
-密钥只传给 API 容器，不进入浏览器、镜像或工具调用日志。未配置密钥时系统自动使用确定性模式。
+重新执行 `docker compose up -d --build --wait` 后生效。密钥只在运行时传给 API 容器，不进入浏览器包、镜像、业务表、工具日志或模型审计。`AGENT_MODE=deterministic` 始终可作为离线模式；如果选择模型模式但密钥缺失或模型服务暂时不可用，系统会发出 `model_fallback` 事件并在安全条件满足时切换到确定性运行器。模型已产生写操作或已向客户输出部分内容后不会盲目重放请求。
+
+配置完成后可运行 `.\scripts\verify-model-provider.ps1 -ResetAfter`，受控验证真实模型的流式文本、政策检索、订单查询和物流工具调用；脚本只检查容器中是否已配置密钥，不读取或输出密钥值。`-ResetAfter` 会在通过后重置演示数据，不希望清理当前演示记录时请省略该参数。
+
+兼容期仍支持原来的 `AGENT_MODE=openai`、`OPENAI_API_KEY` 和 `OPENAI_MODEL` 配置，但订单归属、建单幂等、退款金额与最终确认仍由同一套服务端领域规则控制。
 
 ## 本地开发
 
@@ -137,12 +144,12 @@ docker compose exec -T api python -m serviceops.cli evaluate-knowledge
 curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu-session"
 ```
 
-重置会清理会话、消息、工单、退款、客户满意度、幂等与工具审计，恢复演示订单的可退金额，并把知识库恢复为固定的 `2026-07` 演示版本；客户和物流固定数据保持不变。生产环境会拒绝该接口。
+重置会清理会话、消息、工单、退款、客户满意度、幂等、工具审计与模型调用审计，恢复演示订单的可退金额，并把知识库恢复为固定的 `2026-07` 演示版本；客户和物流固定数据保持不变。生产环境会拒绝该接口。
 
 ## 已知限制
 
 - 订单、物流和支付均为模拟适配器，不会调用真实平台或产生真实资金动作。
-- 默认确定性运行器用于离线演示与稳定测试；Agents SDK 模式需要服务器端 OpenAI API Key。
+- 默认确定性运行器用于离线演示与稳定测试；DeepSeek 模型模式需要服务端 API Key。仓库不包含真实密钥，因此真实供应商的流式输出、工具调用和限流响应需要在本机配置 Key 后单独验收。
 - MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
 - 当前坐席工作台使用两个固定演示坐席并支持原子受理冲突保护，尚未接入企业账号、组织权限和排班。
 - 当前运营看板支持单实例内的实时主动告警，尚未接入短信、邮件、企业 IM 等外部通知渠道或长期数据仓库。
