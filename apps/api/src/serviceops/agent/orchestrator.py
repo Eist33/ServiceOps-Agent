@@ -8,10 +8,16 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from serviceops.audit.service import record_invocation
-from serviceops.conversations.service import add_message, get_conversation
+from serviceops.conversations.service import (
+    add_message,
+    get_conversation,
+    order_snapshot,
+    request_order_selection,
+    set_active_order,
+)
 from serviceops.knowledge.service import search_knowledge_base
 from serviceops.models import Customer, Order
-from serviceops.orders.service import get_latest_order, get_order
+from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.refunds.service import create_refund_request
 from serviceops.shared.errors import DomainError
 from serviceops.shared.schemas import AgentEvent, EventType
@@ -49,7 +55,10 @@ class DeterministicSupportAgent:
                 answer = self._refund_flow(
                     events, trace_id, conversation_id, user_message.id, content
                 )
-            elif any(term in normalized for term in ["物流", "到哪", "没更新", "催", "工单"]):
+            elif any(
+                term in normalized
+                for term in ["物流", "快递", "到哪", "没更新", "催", "工单"]
+            ):
                 answer = self._shipping_flow(
                     events, trace_id, conversation_id, user_message.id, content
                 )
@@ -103,11 +112,102 @@ class DeterministicSupportAgent:
             )
         return events
 
-    def _order_number(self, content: str) -> str:
+    def _resolve_order(
+        self,
+        events: list[AgentEvent],
+        *,
+        trace_id: str,
+        conversation_id: str,
+        message_id: str,
+        content: str,
+    ) -> tuple[Order | None, str | None]:
+        conversation = get_conversation(self.db, self.customer, conversation_id)
         match = ORDER_PATTERN.search(content)
         if match:
-            return match.group(0).upper()
-        return get_latest_order(self.db, self.customer).order_number
+            order_number = match.group(0).upper()
+            order, _ = self._invoke(
+                events,
+                trace_id=trace_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                name="get_order",
+                input_summary={"order_number": order_number},
+                callback=lambda: get_order(self.db, self.customer, order_number),
+            )
+            set_active_order(self.db, self.customer, conversation_id, order.order_number)
+            self._emit_active_order(
+                events, trace_id, conversation_id, message_id, order
+            )
+            return order, None
+
+        if conversation.active_order_id:
+            active_order = self.db.get(Order, conversation.active_order_id)
+            if active_order and active_order.customer_id == self.customer.id:
+                order, _ = self._invoke(
+                    events,
+                    trace_id=trace_id,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    name="get_order",
+                    input_summary={"order_number": active_order.order_number},
+                    callback=lambda: get_order(
+                        self.db, self.customer, active_order.order_number
+                    ),
+                )
+                return order, None
+
+        orders, _ = self._invoke(
+            events,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            name="list_recent_orders",
+            input_summary={"limit": 3},
+            callback=lambda: list_recent_orders(self.db, self.customer),
+        )
+        if not orders:
+            return None, "当前账号没有可用订单，我暂时无法继续执行订单相关操作。"
+        if len(orders) == 1:
+            order = orders[0]
+            set_active_order(self.db, self.customer, conversation_id, order.order_number)
+            self._emit_active_order(
+                events, trace_id, conversation_id, message_id, order
+            )
+            return order, None
+
+        request_order_selection(self.db, self.customer, conversation_id)
+        events.append(
+            AgentEvent(
+                type=EventType.ORDER_SELECTION_REQUIRED,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                trace_id=trace_id,
+                payload={
+                    "reason": "multiple_recent_orders",
+                    "orders": [order_snapshot(item) for item in orders],
+                },
+            )
+        )
+        return None, "我找到了你最近的 3 笔订单，请先选择这次需要处理的订单。"
+
+    @staticmethod
+    def _emit_active_order(
+        events: list[AgentEvent],
+        trace_id: str,
+        conversation_id: str,
+        message_id: str,
+        order: Order,
+    ) -> None:
+        events.append(
+            AgentEvent(
+                type=EventType.ACTIVE_ORDER_CHANGED,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                trace_id=trace_id,
+                order_id=order.id,
+                payload={"order": order_snapshot(order)},
+            )
+        )
 
     def _invoke(
         self,
@@ -204,6 +304,8 @@ class DeterministicSupportAgent:
                 "paid_amount": str(result.paid_amount),
                 "refundable_amount": str(result.refundable_amount),
             }
+        if isinstance(result, list) and all(isinstance(item, Order) for item in result):
+            return {"orders": [order_snapshot(item) for item in result]}
         if hasattr(result, "ticket_number"):
             return {
                 "ticket_id": result.id,
@@ -240,16 +342,16 @@ class DeterministicSupportAgent:
         return f"{source['content']}（来源：{source['title']} {source['version']}，{source['section']}）"
 
     def _shipping_flow(self, events, trace_id, conversation_id, message_id, content) -> str:
-        order_number = self._order_number(content)
-        order, _ = self._invoke(
+        order, blocker = self._resolve_order(
             events,
             trace_id=trace_id,
             conversation_id=conversation_id,
             message_id=message_id,
-            name="get_order",
-            input_summary={"order_number": order_number},
-            callback=lambda: get_order(self.db, self.customer, order_number),
+            content=content,
         )
+        if order is None:
+            return blocker or "请先选择需要处理的订单。"
+        order_number = order.order_number
         shipping, _ = self._invoke(
             events,
             trace_id=trace_id,
@@ -304,16 +406,16 @@ class DeterministicSupportAgent:
         return f"订单 {order.order_number} 当前物流正常，最新节点是{location}。"
 
     def _refund_flow(self, events, trace_id, conversation_id, message_id, content) -> str:
-        order_number = self._order_number(content)
-        order, _ = self._invoke(
+        order, blocker = self._resolve_order(
             events,
             trace_id=trace_id,
             conversation_id=conversation_id,
             message_id=message_id,
-            name="get_order",
-            input_summary={"order_number": order_number},
-            callback=lambda: get_order(self.db, self.customer, order_number),
+            content=content,
         )
+        if order is None:
+            return blocker or "请先选择需要处理的订单。"
+        order_number = order.order_number
         self._invoke(
             events,
             trace_id=trace_id,

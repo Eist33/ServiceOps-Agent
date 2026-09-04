@@ -116,56 +116,93 @@ def seed_database(db: Session) -> None:
             )
         )
     existing = db.scalar(select(Customer).where(Customer.session_token == DEMO_SESSION_TOKEN))
-    if existing:
-        db.commit()
-        return
-    customer = Customer(name="林沐", session_token=DEMO_SESSION_TOKEN)
-    other = Customer(name="周远", session_token=SECONDARY_SESSION_TOKEN)
-    db.add_all([customer, other])
-    db.flush()
-    order = Order(
-        order_number="ORD-20260828-1042",
-        customer_id=customer.id,
-        product_name="城市通勤双肩包",
-        paid_amount=Decimal("329.00"),
-        refundable_amount=Decimal("329.00"),
-        status="IN_TRANSIT",
-        ordered_at=datetime(2026, 8, 28, 10, 15, tzinfo=UTC),
+    customer = existing or Customer(name="林沐", session_token=DEMO_SESSION_TOKEN)
+    other = db.scalar(
+        select(Customer).where(Customer.session_token == SECONDARY_SESSION_TOKEN)
+    ) or Customer(name="周远", session_token=SECONDARY_SESSION_TOKEN)
+    if customer.id is None or other.id is None:
+        db.add_all([customer, other])
+        db.flush()
+
+    order_fixtures = [
+        {
+            "order_number": "ORD-20260902-3188",
+            "customer_id": customer.id,
+            "product_name": "降噪蓝牙耳机",
+            "paid_amount": Decimal("599.00"),
+            "refundable_amount": Decimal("599.00"),
+            "status": "DELIVERED",
+            "ordered_at": datetime(2026, 9, 2, 14, 35, tzinfo=UTC),
+        },
+        {
+            "order_number": "ORD-20260831-2256",
+            "customer_id": customer.id,
+            "product_name": "便携保温杯",
+            "paid_amount": Decimal("159.00"),
+            "refundable_amount": Decimal("159.00"),
+            "status": "SHIPPED",
+            "ordered_at": datetime(2026, 8, 31, 16, 20, tzinfo=UTC),
+        },
+        {
+            "order_number": "ORD-20260828-1042",
+            "customer_id": customer.id,
+            "product_name": "城市通勤双肩包",
+            "paid_amount": Decimal("329.00"),
+            "refundable_amount": Decimal("329.00"),
+            "status": "IN_TRANSIT",
+            "ordered_at": datetime(2026, 8, 28, 10, 15, tzinfo=UTC),
+        },
+        {
+            "order_number": "ORD-20260827-9001",
+            "customer_id": other.id,
+            "product_name": "旅行收纳套装",
+            "paid_amount": Decimal("119.00"),
+            "refundable_amount": Decimal("119.00"),
+            "status": "DELIVERED",
+            "ordered_at": datetime(2026, 8, 27, 9, 30, tzinfo=UTC),
+        },
+    ]
+    orders: dict[str, Order] = {}
+    for fixture in order_fixtures:
+        order = db.scalar(
+            select(Order).where(Order.order_number == fixture["order_number"])
+        )
+        if order is None:
+            order = Order(**fixture)
+            db.add(order)
+            db.flush()
+        orders[order.order_number] = order
+
+    main_order = orders["ORD-20260828-1042"]
+    has_shipping = db.scalar(
+        select(ShippingEvent.id).where(ShippingEvent.order_id == main_order.id).limit(1)
     )
-    other_order = Order(
-        order_number="ORD-20260827-9001",
-        customer_id=other.id,
-        product_name="旅行收纳套装",
-        paid_amount=Decimal("119.00"),
-        refundable_amount=Decimal("119.00"),
-        status="DELIVERED",
-        ordered_at=datetime(2026, 8, 27, 9, 30, tzinfo=UTC),
-    )
-    db.add_all([order, other_order])
-    db.flush()
-    db.add_all(
-        [
-            ShippingEvent(
-                order_id=order.id,
-                location="华东转运中心",
-                description="到达华东转运中心",
-                occurred_at=datetime(2026, 8, 29, 18, 20, tzinfo=UTC),
-            ),
-            ShippingEvent(
-                order_id=order.id,
-                location="杭州集散中心",
-                description="离开杭州集散中心",
-                occurred_at=datetime(2026, 8, 29, 9, 42, tzinfo=UTC),
-            ),
-            ShippingEvent(
-                order_id=order.id,
-                location="杭州余杭营业点",
-                description="快件已揽收",
-                occurred_at=datetime(2026, 8, 28, 21, 6, tzinfo=UTC),
-            ),
-        ]
-    )
-    _add_seed_knowledge(db)
+    if has_shipping is None:
+        db.add_all(
+            [
+                ShippingEvent(
+                    order_id=main_order.id,
+                    location="华东转运中心",
+                    description="到达华东转运中心",
+                    occurred_at=datetime(2026, 8, 29, 18, 20, tzinfo=UTC),
+                ),
+                ShippingEvent(
+                    order_id=main_order.id,
+                    location="杭州集散中心",
+                    description="离开杭州集散中心",
+                    occurred_at=datetime(2026, 8, 29, 9, 42, tzinfo=UTC),
+                ),
+                ShippingEvent(
+                    order_id=main_order.id,
+                    location="杭州余杭营业点",
+                    description="快件已揽收",
+                    occurred_at=datetime(2026, 8, 28, 21, 6, tzinfo=UTC),
+                ),
+            ]
+        )
+    has_knowledge = db.scalar(select(KnowledgeArticle.id).limit(1))
+    if has_knowledge is None:
+        _add_seed_knowledge(db)
     db.commit()
 
 
@@ -185,8 +222,12 @@ def reset_demo_state(db: Session) -> None:
         db.execute(delete(model))
     db.execute(delete(KnowledgeArticle))
     _add_seed_knowledge(db)
-    order = db.scalar(select(Order).where(Order.order_number == "ORD-20260828-1042"))
-    if order:
+    initial_statuses = {
+        "ORD-20260902-3188": "DELIVERED",
+        "ORD-20260831-2256": "SHIPPED",
+        "ORD-20260828-1042": "IN_TRANSIT",
+    }
+    for order in db.scalars(select(Order).where(Order.order_number.in_(initial_statuses))):
         order.refundable_amount = order.paid_amount
-        order.status = "IN_TRANSIT"
+        order.status = initial_statuses[order.order_number]
     db.commit()

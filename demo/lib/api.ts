@@ -14,6 +14,8 @@ export type AgentEvent = {
     | 'tool_completed'
     | 'approval_required'
     | 'business_state_changed'
+    | 'order_selection_required'
+    | 'active_order_changed'
     | 'error'
     | 'response_completed';
   conversation_id: string;
@@ -69,7 +71,16 @@ export type CustomerFeedbackData = {
 };
 
 export type ConversationState = {
-  conversation: { id: string; updated_at: string };
+  conversation: {
+    id: string;
+    updated_at: string;
+    order_selection_pending: boolean;
+  };
+  active_order: OrderData | null;
+  order_selection: {
+    required: boolean;
+    orders: OrderData[];
+  };
   messages: Array<{
     id: string;
     role: 'user' | 'agent';
@@ -391,6 +402,20 @@ export const createConversation = () =>
   });
 export const loadConversation = (id: string) =>
   request<ConversationState>(`/api/conversations/${id}`);
+export const listRecentOrders = () =>
+  request<OrderData[]>('/api/orders/recent');
+export const requestOrderSelection = (conversationId: string) =>
+  request<OrderData[]>(`/api/conversations/${conversationId}/order-selection`, {
+    method: 'POST',
+  });
+export const selectActiveOrder = (
+  conversationId: string,
+  orderNumber: string,
+) =>
+  request<OrderData>(`/api/conversations/${conversationId}/active-order`, {
+    method: 'POST',
+    body: JSON.stringify({ order_number: orderNumber }),
+  });
 export const getOrder = (number = 'ORD-20260828-1042') =>
   request<OrderData>(`/api/orders/${number}`);
 export const getShipping = (number = 'ORD-20260828-1042') =>

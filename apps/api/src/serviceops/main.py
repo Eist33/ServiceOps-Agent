@@ -16,6 +16,8 @@ from serviceops.config import get_settings
 from serviceops.conversations.service import (
     conversation_state,
     create_conversation,
+    request_order_selection,
+    set_active_order,
 )
 from serviceops.database import Base, engine, get_db
 from serviceops.feedback.service import submit_customer_feedback
@@ -39,11 +41,12 @@ from serviceops.operations.service import (
     operations_ticket_report,
 )
 from serviceops.operations.streaming import stream_operations_alerts
-from serviceops.orders.service import get_order
+from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
 from serviceops.shared.schemas import (
+    ActiveOrderRequest,
     AgentTicketNoteRequest,
     AgentTicketResolveRequest,
     AgentTicketResponse,
@@ -369,6 +372,30 @@ def create_app() -> FastAPI:
     ):
         return conversation_state(db, customer, conversation_id)
 
+    @app.post(
+        "/api/conversations/{conversation_id}/active-order",
+        response_model=OrderResponse,
+    )
+    def choose_active_order(
+        conversation_id: str,
+        body: ActiveOrderRequest,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        order = set_active_order(db, customer, conversation_id, body.order_number)
+        return OrderResponse.model_validate(order, from_attributes=True)
+
+    @app.post(
+        "/api/conversations/{conversation_id}/order-selection",
+        response_model=list[OrderResponse],
+    )
+    def open_order_selection(
+        conversation_id: str,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        return request_order_selection(db, customer, conversation_id)
+
     @app.post("/api/conversations/{conversation_id}/messages")
     async def post_message(
         conversation_id: str,
@@ -397,6 +424,13 @@ def create_app() -> FastAPI:
                 yield json.dumps(event.model_dump(mode="json"), ensure_ascii=False) + "\n"
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+    @app.get("/api/orders/recent", response_model=list[OrderResponse])
+    def recent_orders(
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        return list_recent_orders(db, customer)
 
     @app.get("/api/orders/{order_number}", response_model=OrderResponse)
     def order_detail(

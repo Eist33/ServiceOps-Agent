@@ -4,6 +4,7 @@ from serviceops.agent.openai_runtime import (
     get_order,
     get_shipping_status,
     get_ticket,
+    list_recent_orders,
     search_knowledge_base,
 )
 
@@ -11,6 +12,7 @@ from serviceops.agent.openai_runtime import (
 def test_agents_sdk_tool_names_and_schemas_are_stable():
     tools = [
         search_knowledge_base,
+        list_recent_orders,
         get_order,
         get_shipping_status,
         create_ticket,
@@ -19,6 +21,7 @@ def test_agents_sdk_tool_names_and_schemas_are_stable():
     ]
     assert [tool.name for tool in tools] == [
         "search_knowledge_base",
+        "list_recent_orders",
         "get_order",
         "get_shipping_status",
         "create_ticket",
@@ -32,6 +35,7 @@ def test_agents_sdk_tool_names_and_schemas_are_stable():
 def test_confirm_refund_is_not_an_agent_tool():
     tool_names = {
         search_knowledge_base.name,
+        list_recent_orders.name,
         get_order.name,
         get_shipping_status.name,
         create_ticket.name,

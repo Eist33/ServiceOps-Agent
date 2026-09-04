@@ -50,10 +50,11 @@ import {
   confirmRefund,
   createConversation,
   createShippingTicket,
-  getOrder,
   getShipping,
   handoffTicket,
   loadConversation,
+  requestOrderSelection,
+  selectActiveOrder,
   sendCustomerTicketMessage,
   sendMessage,
   submitCustomerFeedback,
@@ -192,6 +193,8 @@ export default function DemoClient() {
   const refreshState = useCallback(async (id: string) => {
     const next = await loadConversation(id);
     setState(next);
+    setOrder(next.active_order);
+    if (!next.active_order) setShipping(null);
     return next;
   }, []);
 
@@ -201,24 +204,27 @@ export default function DemoClient() {
     setConversationId(created.id);
     setItems([{ ...welcome, id: `welcome-${created.id}` }]);
     setState(null);
+    setOrder(null);
+    setShipping(null);
     return created.id;
   }, []);
 
   useEffect(() => {
     async function initialize() {
       try {
-        const [orderData, shippingData] = await Promise.all([
-          getOrder(),
-          getShipping(),
-        ]);
-        setOrder(orderData);
-        setShipping(shippingData);
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           try {
             const persisted = await loadConversation(saved);
             setConversationId(saved);
             setState(persisted);
+            setOrder(persisted.active_order);
+            if (persisted.active_order) {
+              const shippingData = await getShipping(
+                persisted.active_order.order_number,
+              );
+              setShipping(shippingData);
+            }
             setItems(
               persisted.messages.length
                 ? persisted.messages.map((message) => ({
@@ -263,6 +269,9 @@ export default function DemoClient() {
       const result = event.payload.result as
         | Record<string, unknown>
         | undefined;
+      if (event.payload.tool_name === 'get_shipping_status' && result) {
+        setShipping(result as ShippingData);
+      }
       setItems((current) =>
         current.map((item) =>
           item.kind === 'tool' && item.id === event.tool_call_id
@@ -274,6 +283,26 @@ export default function DemoClient() {
               }
             : item,
         ),
+      );
+    } else if (event.type === 'active_order_changed') {
+      const selected = event.payload.order as OrderData | undefined;
+      if (selected) {
+        setOrder(selected);
+        setShipping(null);
+      }
+    } else if (event.type === 'order_selection_required') {
+      const orders = (event.payload.orders as OrderData[] | undefined) ?? [];
+      setState((current) =>
+        current
+          ? {
+              ...current,
+              conversation: {
+                ...current.conversation,
+                order_selection_pending: true,
+              },
+              order_selection: { required: true, orders },
+            }
+          : current,
       );
     } else if (event.type === 'approval_required') {
       setItems((current) => [
@@ -362,10 +391,13 @@ export default function DemoClient() {
   }
 
   async function createTicketFromChat() {
-    if (!conversationId || busy) return;
+    if (!conversationId || !order || busy) return;
     setBusy(true);
     try {
-      const ticket = await createShippingTicket(conversationId, ORDER_NUMBER);
+      const ticket = await createShippingTicket(
+        conversationId,
+        order.order_number,
+      );
       setItems((current) => [
         ...current,
         {
@@ -378,6 +410,36 @@ export default function DemoClient() {
       await refreshState(conversationId);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '创建工单失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function chooseOrder(orderNumber: string) {
+    if (!conversationId || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const selected = await selectActiveOrder(conversationId, orderNumber);
+      setOrder(selected);
+      setShipping(null);
+      await refreshState(conversationId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '选择订单失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function changeOrder() {
+    if (!conversationId || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      await requestOrderSelection(conversationId);
+      await refreshState(conversationId);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '加载订单失败');
     } finally {
       setBusy(false);
     }
@@ -672,6 +734,14 @@ export default function DemoClient() {
                   />
                 ))
               )}
+              {state?.order_selection.required &&
+                state.order_selection.orders.length > 0 && (
+                  <OrderSelectionCards
+                    orders={state.order_selection.orders}
+                    busy={busy}
+                    onSelect={chooseOrder}
+                  />
+                )}
               {busy && (
                 <div className="flex gap-3">
                   <AgentAvatar />
@@ -717,6 +787,7 @@ export default function DemoClient() {
           refund={activeRefund}
           invocations={state?.tool_invocations ?? []}
           onOpenTicket={() => setTicketDialogOpen(true)}
+          onChangeOrder={changeOrder}
         />
       </div>
       <TicketDialog
@@ -838,6 +909,48 @@ function AgentAvatar() {
         <Bot className="size-3.5" />
       </AvatarFallback>
     </Avatar>
+  );
+}
+
+function OrderSelectionCards({
+  orders,
+  busy,
+  onSelect,
+}: {
+  orders: OrderData[];
+  busy: boolean;
+  onSelect: (orderNumber: string) => Promise<void>;
+}) {
+  return (
+    <div className="ml-11 rounded-2xl border border-indigo-100 bg-white p-4 shadow-sm">
+      <div className="flex items-center gap-2 text-sm font-semibold">
+        <PackageCheck className="size-4 text-indigo-700" /> 请选择需要处理的订单
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">
+        仅展示当前模拟客户最近 3 笔订单，选择后本次对话会持续使用该订单。
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        {orders.map((item) => (
+          <button
+            className="rounded-xl border p-3 text-left transition hover:border-indigo-300 hover:bg-indigo-50 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={busy}
+            key={item.id}
+            onClick={() => void onSelect(item.order_number)}
+          >
+            <span className="block truncate text-xs font-semibold">
+              {item.product_name}
+            </span>
+            <span className="mt-1 block text-[10px] text-muted-foreground">
+              {item.order_number}
+            </span>
+            <span className="mt-2 flex items-center justify-between text-[11px]">
+              <span>¥{item.paid_amount}</span>
+              <span>{item.status}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -995,6 +1108,7 @@ function ContextPanel({
   refund,
   invocations,
   onOpenTicket,
+  onChangeOrder,
 }: {
   order: OrderData | null;
   shipping: ShippingData | null;
@@ -1002,6 +1116,7 @@ function ContextPanel({
   refund: ConversationState['refunds'][number] | null;
   invocations: ConversationState['tool_invocations'];
   onOpenTicket: () => void;
+  onChangeOrder: () => Promise<void>;
 }) {
   return (
     <aside className="hidden h-[calc(100vh-4rem)] overflow-y-auto border-l bg-white p-5 xl:block">
@@ -1033,6 +1148,30 @@ function ContextPanel({
               </dd>
             </div>
           </dl>
+          <Button
+            className="mt-4 w-full"
+            size="sm"
+            variant="outline"
+            onClick={() => void onChangeOrder()}
+          >
+            更换订单
+          </Button>
+        </div>
+      )}
+      {!order && (
+        <div className="mt-5 rounded-2xl border border-dashed bg-[#f7f9fa] p-4">
+          <p className="text-xs font-semibold">尚未选择订单</p>
+          <p className="mt-1 text-[11px] leading-5 text-muted-foreground">
+            直接描述问题即可。涉及订单时，助手会请你从最近 3 笔订单中选择。
+          </p>
+          <Button
+            className="mt-3 w-full"
+            size="sm"
+            variant="outline"
+            onClick={() => void onChangeOrder()}
+          >
+            查看最近订单
+          </Button>
         </div>
       )}
       {shipping && (

@@ -12,6 +12,8 @@ class EventType(StrEnum):
     TOOL_COMPLETED = "tool_completed"
     APPROVAL_REQUIRED = "approval_required"
     BUSINESS_STATE_CHANGED = "business_state_changed"
+    ORDER_SELECTION_REQUIRED = "order_selection_required"
+    ACTIVE_ORDER_CHANGED = "active_order_changed"
     ERROR = "error"
     RESPONSE_COMPLETED = "response_completed"
 
@@ -35,6 +37,10 @@ class ConversationCreateResponse(BaseModel):
 
 class MessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=2000)
+
+
+class ActiveOrderRequest(BaseModel):
+    order_number: str = Field(min_length=4, max_length=40)
 
 
 class KnowledgePublishRequest(BaseModel):
@@ -293,6 +299,8 @@ class RefundResponse(BaseModel):
 
 
 class OrderResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     order_number: str
     product_name: str

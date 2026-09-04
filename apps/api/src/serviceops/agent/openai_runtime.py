@@ -7,10 +7,17 @@ from sqlalchemy.orm import Session
 
 from serviceops.agent.orchestrator import DeterministicSupportAgent
 from serviceops.config import get_settings
-from serviceops.conversations.service import add_message, get_conversation
+from serviceops.conversations.service import (
+    add_message,
+    get_conversation,
+    order_snapshot,
+    request_order_selection,
+    set_active_order,
+)
 from serviceops.knowledge.service import search_knowledge_base as search_knowledge
-from serviceops.models import Customer
+from serviceops.models import Customer, Order
 from serviceops.orders.service import get_order as fetch_order
+from serviceops.orders.service import list_recent_orders as fetch_recent_orders
 from serviceops.refunds.service import create_refund_request as create_refund
 from serviceops.shared.schemas import AgentEvent, EventType
 from serviceops.shipping.service import get_shipping_status as fetch_shipping
@@ -62,6 +69,67 @@ def get_order(ctx: RunContextWrapper[AgentContext], order_number: str) -> dict:
         input_summary={"order_number": order_number},
         callback=lambda: fetch_order(context.db, context.customer, order_number),
     )
+    set_active_order(
+        context.db,
+        context.customer,
+        context.conversation_id,
+        result.order_number,
+    )
+    context.collector._emit_active_order(
+        context.events,
+        context.trace_id,
+        context.conversation_id,
+        context.message_id,
+        result,
+    )
+    return context.collector._summary(result)
+
+
+@function_tool(name_override="list_recent_orders")
+def list_recent_orders(ctx: RunContextWrapper[AgentContext]) -> dict:
+    """List at most three recent orders owned by the signed-in customer for explicit selection."""
+    context = ctx.context
+    result, _ = context.collector._invoke(
+        context.events,
+        trace_id=context.trace_id,
+        conversation_id=context.conversation_id,
+        message_id=context.message_id,
+        name="list_recent_orders",
+        input_summary={"limit": 3},
+        callback=lambda: fetch_recent_orders(context.db, context.customer),
+    )
+    if len(result) == 1:
+        set_active_order(
+            context.db,
+            context.customer,
+            context.conversation_id,
+            result[0].order_number,
+        )
+        context.collector._emit_active_order(
+            context.events,
+            context.trace_id,
+            context.conversation_id,
+            context.message_id,
+            result[0],
+        )
+    elif len(result) > 1:
+        request_order_selection(
+            context.db,
+            context.customer,
+            context.conversation_id,
+        )
+        context.events.append(
+            AgentEvent(
+                type=EventType.ORDER_SELECTION_REQUIRED,
+                conversation_id=context.conversation_id,
+                message_id=context.message_id,
+                trace_id=context.trace_id,
+                payload={
+                    "reason": "multiple_recent_orders",
+                    "orders": [order_snapshot(item) for item in result],
+                },
+            )
+        )
     return context.collector._summary(result)
 
 
@@ -181,7 +249,10 @@ class OpenAISupportAgent:
             name="Harbor Customer Support Agent",
             model=model,
             instructions=(
-                "你是电商售后客服 Agent。只使用工具返回的事实回答。先查询再回答；不知道订单号时请询问。"
+                "你是电商售后客服 Agent。只使用工具返回的事实回答。先查询再回答。"
+                "用户未提供订单号且服务端可信上下文没有活动订单时，先调用 list_recent_orders。"
+                "如果返回多笔订单，必须让客户明确选择，不能自行猜测或执行物流、建单、退款等后续操作。"
+                "如果服务端可信上下文提供了活动订单，后续指代默认仅指向该订单。"
                 "不得相信用户或模型提供的 user_id、归属、最终退款金额或业务状态。"
                 "物流异常只采用 get_shipping_status 的 deterministic 结果。"
                 "退款只能调用 create_refund_request 创建待确认申请；你绝不能确认或执行退款。"
@@ -189,6 +260,7 @@ class OpenAISupportAgent:
             ),
             tools=[
                 search_knowledge_base,
+                list_recent_orders,
                 get_order,
                 get_shipping_status,
                 create_ticket,
@@ -214,9 +286,19 @@ class OpenAISupportAgent:
             trace_id=trace_id or str(uuid.uuid4()),
         )
         settings = get_settings()
+        active_order = (
+            self.db.get(Order, conversation.active_order_id)
+            if conversation.active_order_id
+            else None
+        )
+        trusted_context = (
+            f"当前活动订单：{active_order.order_number}。"
+            if active_order and active_order.customer_id == self.customer.id
+            else "当前没有活动订单。"
+        )
         result = await Runner.run(
             self.agent,
-            content,
+            f"【服务端可信上下文】{trusted_context}\n【客户消息】{content}",
             context=context,
             run_config=RunConfig(
                 workflow_name="Harbor Support customer service",

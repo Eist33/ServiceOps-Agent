@@ -1,5 +1,10 @@
 import json
 
+from sqlalchemy import select
+
+from serviceops.identity.service import resolve_customer
+from serviceops.models import Order, ShippingEvent
+
 
 def new_conversation(client):
     return client.post("/api/conversations").json()["id"]
@@ -17,6 +22,19 @@ def event_types(events):
     return [event["type"] for event in events]
 
 
+def keep_demo_orders(db, order_numbers: set[str]) -> None:
+    customer = resolve_customer(db, "demo-linmu-session")
+    orders = list(db.scalars(select(Order).where(Order.customer_id == customer.id)))
+    for order in orders:
+        if order.order_number not in order_numbers:
+            for event in db.scalars(
+                select(ShippingEvent).where(ShippingEvent.order_id == order.id)
+            ):
+                db.delete(event)
+            db.delete(order)
+    db.commit()
+
+
 def test_policy_flow_emits_source_tool_events(client):
     events = run_agent(client, new_conversation(client), "退货需要几天？")
     assert event_types(events)[0] == "tool_started"
@@ -30,6 +48,133 @@ def test_shipping_flow_uses_order_and_shipping_tools(client):
     events = run_agent(client, new_conversation(client), "订单 ORD-20260828-1042 物流到哪了？")
     tools = [event["payload"]["tool_name"] for event in events if event["type"] == "tool_completed"]
     assert tools == ["get_order", "get_shipping_status"]
+
+
+def test_order_flow_requires_selection_when_recent_orders_are_ambiguous(client):
+    conversation_id = new_conversation(client)
+    events = run_agent(client, conversation_id, "帮我查一下快递")
+
+    tools = [
+        event["payload"]["tool_name"]
+        for event in events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["list_recent_orders"]
+    selection = next(
+        event for event in events if event["type"] == "order_selection_required"
+    )
+    assert len(selection["payload"]["orders"]) == 3
+
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["active_order"] is None
+    assert state["order_selection"]["required"] is True
+    assert len(state["order_selection"]["orders"]) == 3
+    assert state["tickets"] == []
+    assert state["refunds"] == []
+
+
+def test_only_recent_order_is_automatically_selected(client, db):
+    keep_demo_orders(db, {"ORD-20260828-1042"})
+    conversation_id = new_conversation(client)
+    events = run_agent(client, conversation_id, "帮我查一下快递")
+
+    tools = [
+        event["payload"]["tool_name"]
+        for event in events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["list_recent_orders", "get_shipping_status"]
+    assert "order_selection_required" not in event_types(events)
+    assert "active_order_changed" in event_types(events)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["active_order"]["order_number"] == "ORD-20260828-1042"
+
+
+def test_no_orders_stops_before_order_business_tools(client, db):
+    keep_demo_orders(db, set())
+    conversation_id = new_conversation(client)
+    events = run_agent(client, conversation_id, "帮我查一下快递")
+
+    tools = [
+        event["payload"]["tool_name"]
+        for event in events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["list_recent_orders"]
+    assert "order_selection_required" not in event_types(events)
+    message = next(event for event in events if event["type"] == "message_delta")
+    assert "没有可用订单" in message["payload"]["delta"]
+
+
+def test_selected_order_is_reused_and_restored_in_conversation(client):
+    conversation_id = new_conversation(client)
+    run_agent(client, conversation_id, "帮我查一下快递")
+    selected = client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260828-1042"},
+    )
+    assert selected.status_code == 200
+
+    events = run_agent(client, conversation_id, "这个订单现在到哪里了？")
+    tools = [
+        event["payload"]["tool_name"]
+        for event in events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["get_order", "get_shipping_status"]
+
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["active_order"]["order_number"] == "ORD-20260828-1042"
+    assert state["order_selection"] == {"required": False, "orders": []}
+
+
+def test_changing_order_clears_previous_choice_until_customer_selects(client):
+    conversation_id = new_conversation(client)
+    selected = client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260828-1042"},
+    )
+    assert selected.status_code == 200
+
+    response = client.post(
+        f"/api/conversations/{conversation_id}/order-selection"
+    )
+    assert response.status_code == 200
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["active_order"] is None
+    assert state["order_selection"]["required"] is True
+
+    events = run_agent(client, conversation_id, "帮我申请退款")
+    assert "approval_required" not in event_types(events)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["refunds"] == []
+
+
+def test_active_order_selection_enforces_conversation_and_order_ownership(
+    client, other_client
+):
+    conversation_id = new_conversation(client)
+    forbidden_conversation = other_client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260827-9001"},
+    )
+    assert forbidden_conversation.status_code == 403
+
+    forbidden_order = client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260827-9001"},
+    )
+    assert forbidden_order.status_code == 403
+
+
+def test_explicit_order_number_becomes_active_order(client):
+    conversation_id = new_conversation(client)
+    events = run_agent(
+        client, conversation_id, "订单 ORD-20260828-1042 物流到哪了？"
+    )
+    assert "active_order_changed" in event_types(events)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["active_order"]["order_number"] == "ORD-20260828-1042"
 
 
 def test_ticket_flow_changes_business_state(client):

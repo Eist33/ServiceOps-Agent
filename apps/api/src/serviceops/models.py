@@ -148,6 +148,10 @@ class Conversation(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), index=True)
+    active_order_id: Mapped[str | None] = mapped_column(
+        ForeignKey("orders.id"), nullable=True, index=True
+    )
+    order_selection_pending: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

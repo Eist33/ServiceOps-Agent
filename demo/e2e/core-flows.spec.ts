@@ -50,6 +50,27 @@ test('订单物流由工具返回确定性异常', async ({ page }) => {
   await expect(page.getByText(/系统规则判定为运输停滞/)).toBeVisible();
 });
 
+test('自然语言触发最近三笔订单选择并在刷新后恢复活动订单', async ({
+  page,
+}) => {
+  await page.getByLabel('输入售后问题').fill('帮我查一下快递');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.getByText('请选择需要处理的订单')).toBeVisible();
+  await expect(page.getByText('仅展示当前模拟客户最近 3 笔订单')).toBeVisible();
+
+  await page.getByRole('button', { name: /城市通勤双肩包/ }).click();
+  const businessContext = page.getByRole('complementary').last();
+  await expect(businessContext.getByText('当前订单')).toBeVisible();
+  await expect(businessContext.getByText('ORD-20260828-1042')).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByText('正在连接业务服务…')).toBeHidden();
+  await expect(businessContext.getByText('ORD-20260828-1042')).toBeVisible();
+  await page.getByLabel('输入售后问题').fill('这个订单现在到哪里了？');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(page.getByText(/已调用 get_shipping_status/)).toBeVisible();
+});
+
 test('新会话创建独立物流工单', async ({ page }) => {
   await page
     .getByRole('button', { name: /物流异常建单/ })

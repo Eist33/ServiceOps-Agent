@@ -6,12 +6,14 @@ from serviceops.models import (
     Customer,
     CustomerSatisfactionFeedback,
     Message,
+    Order,
     RefundRequest,
     Ticket,
     TicketEvent,
     ToolInvocation,
     utcnow,
 )
+from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.shared.errors import ForbiddenError, NotFoundError
 from serviceops.tickets.service import ticket_snapshot
 
@@ -42,8 +44,61 @@ def add_message(db: Session, conversation: Conversation, role: str, content: str
     return message
 
 
+def set_active_order(
+    db: Session,
+    customer: Customer,
+    conversation_id: str,
+    order_number: str,
+) -> Order:
+    conversation = get_conversation(db, customer, conversation_id)
+    order = get_order(db, customer, order_number)
+    conversation.active_order_id = order.id
+    conversation.order_selection_pending = False
+    conversation.updated_at = utcnow()
+    db.commit()
+    db.refresh(conversation)
+    return order
+
+
+def request_order_selection(
+    db: Session,
+    customer: Customer,
+    conversation_id: str,
+) -> list[Order]:
+    conversation = get_conversation(db, customer, conversation_id)
+    orders = list_recent_orders(db, customer)
+    conversation.active_order_id = None
+    conversation.order_selection_pending = bool(orders)
+    conversation.updated_at = utcnow()
+    db.commit()
+    db.refresh(conversation)
+    return orders
+
+
+def order_snapshot(order: Order) -> dict:
+    return {
+        "id": order.id,
+        "order_number": order.order_number,
+        "product_name": order.product_name,
+        "paid_amount": str(order.paid_amount),
+        "refundable_amount": str(order.refundable_amount),
+        "status": order.status,
+        "ordered_at": order.ordered_at.isoformat(),
+    }
+
+
 def conversation_state(db: Session, customer: Customer, conversation_id: str) -> dict:
     conversation = get_conversation(db, customer, conversation_id)
+    active_order = (
+        db.get(Order, conversation.active_order_id)
+        if conversation.active_order_id is not None
+        else None
+    )
+    if active_order is not None and active_order.customer_id != customer.id:
+        active_order = None
+    selectable_orders = (
+        list_recent_orders(db, customer) if conversation.order_selection_pending else []
+    )
     messages = list(
         db.scalars(
             select(Message)
@@ -122,7 +177,16 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
     )
     feedback_by_ticket = {item.ticket_id: item for item in feedback_items}
     return {
-        "conversation": {"id": conversation.id, "updated_at": conversation.updated_at.isoformat()},
+        "conversation": {
+            "id": conversation.id,
+            "updated_at": conversation.updated_at.isoformat(),
+            "order_selection_pending": conversation.order_selection_pending,
+        },
+        "active_order": order_snapshot(active_order) if active_order else None,
+        "order_selection": {
+            "required": conversation.order_selection_pending,
+            "orders": [order_snapshot(item) for item in selectable_orders],
+        },
         "messages": [
             {
                 "id": item.id,
