@@ -20,6 +20,11 @@ SENSITIVE_KEYS = {
 }
 
 request_logger = logging.getLogger("serviceops.request")
+request_logger.setLevel(logging.INFO)
+if not request_logger.handlers:
+    request_handler = logging.StreamHandler()
+    request_handler.setFormatter(logging.Formatter("%(message)s"))
+    request_logger.addHandler(request_handler)
 
 
 def normalize_trace_id(value: str | None) -> str:

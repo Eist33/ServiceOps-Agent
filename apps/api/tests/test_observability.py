@@ -10,7 +10,7 @@ from serviceops.agent import openai_runtime
 from serviceops.conversations.service import create_conversation
 from serviceops.identity.service import resolve_customer
 from serviceops.main import create_app
-from serviceops.observability import redact
+from serviceops.observability import redact, request_logger
 from serviceops.seed import DEMO_SESSION_TOKEN
 
 
@@ -19,6 +19,8 @@ def _new_conversation(client) -> str:
 
 
 def test_request_trace_id_correlates_agent_events_and_safe_json_log(client, caplog):
+    assert request_logger.getEffectiveLevel() == logging.INFO
+    assert any(isinstance(handler, logging.StreamHandler) for handler in request_logger.handlers)
     trace_id = "acceptance-trace-001"
     conversation_id = _new_conversation(client)
 
