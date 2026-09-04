@@ -1,5 +1,7 @@
 param(
-    [switch]$ColdStart
+    [switch]$ColdStart,
+    [switch]$VerifyModelProvider,
+    [switch]$EvaluateFullModel
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,6 +39,11 @@ try {
         throw "Database is not at the latest migration: $migration"
     }
 
+    & docker compose exec -T api python -m serviceops.cli evaluate-knowledge
+    Assert-Succeeded -Step 'Knowledge retrieval evaluation gate' -ExitCode $LASTEXITCODE
+    & docker compose exec -T api python -m serviceops.cli evaluate-agent
+    Assert-Succeeded -Step 'Agent orchestration evaluation gate' -ExitCode $LASTEXITCODE
+
     foreach ($url in @(
         'http://127.0.0.1:3000/',
         'http://127.0.0.1:3000/agent',
@@ -56,6 +63,18 @@ try {
 
     & (Join-Path $PSScriptRoot 'verify.ps1')
     Assert-Succeeded -Step 'Full automated verification' -ExitCode $LASTEXITCODE
+
+    if ($VerifyModelProvider) {
+        & (Join-Path $PSScriptRoot 'verify-model-provider.ps1') -ResetAfter
+        Assert-Succeeded -Step 'Real model provider verification' -ExitCode $LASTEXITCODE
+    }
+    if ($EvaluateFullModel) {
+        if (-not $VerifyModelProvider) {
+            throw '-EvaluateFullModel requires -VerifyModelProvider.'
+        }
+        & docker compose exec -T api python -m serviceops.cli evaluate-agent --runtime model
+        Assert-Succeeded -Step 'Full real-model orchestration evaluation' -ExitCode $LASTEXITCODE
+    }
 
     $reset = Invoke-RestMethod `
         -Method Post `

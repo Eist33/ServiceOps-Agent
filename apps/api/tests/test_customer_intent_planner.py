@@ -29,6 +29,23 @@ def test_ticket_status_is_not_misclassified_as_ticket_creation():
     ]
 
 
+def test_refund_information_is_policy_but_explicit_request_is_refund():
+    assert plan_customer_intents("退款多久到账") == [CustomerIntent.POLICY]
+    assert plan_customer_intents("运输中的订单可以退款吗") == [
+        CustomerIntent.POLICY,
+    ]
+    assert plan_customer_intents("ORD-20260828-1042 商品破损了，我要退款") == [
+        CustomerIntent.REFUND
+    ]
+
+
+def test_ticket_status_wins_over_shipping_terms_and_new_shipping_synonyms_work():
+    assert plan_customer_intents("物流工单处理结果是什么") == [
+        CustomerIntent.TICKET_STATUS
+    ]
+    assert plan_customer_intents("我的包裹走到哪了") == [CustomerIntent.SHIPPING]
+
+
 def test_refund_reason_requires_customer_supplied_evidence():
     assert refund_reason_from("帮我申请退款") is None
     assert refund_reason_from("商品破损了，我要退款") == "商品破损了，我要退款"

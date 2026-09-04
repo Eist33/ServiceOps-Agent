@@ -69,7 +69,27 @@ Windows 用户也可以在 Docker Desktop 启动后直接运行：
 
 ### 启用 DeepSeek 模型模式
 
-复制根目录 `.env.example` 为 `.env`，填写服务端密钥：
+最简单、安全的本机部署方式是在 Docker Desktop 已启动后运行：
+
+```powershell
+.\scripts\deploy-local-deepseek.ps1
+```
+
+脚本会要求在终端中输入 DeepSeek API Key，输入内容不会显示。密钥只写入已被 Git 忽略的本机 `.env`，随后自动构建 Docker、升级数据库、执行离线质量门禁和两条真实模型烟雾测试。成功后打开 <http://127.0.0.1:3000/> 即可使用。
+
+首次部署或需要验证 Docker 冷启动时使用：
+
+```powershell
+.\scripts\deploy-local-deepseek.ps1 -ColdStart
+```
+
+需要执行全部 70 条真实模型编排评测时使用下面的命令。该模式会产生约 70 次对话及其工具回合的真实 API 调用、需要数分钟，并产生相应的模型费用：
+
+```powershell
+.\scripts\deploy-local-deepseek.ps1 -EvaluateFullModel
+```
+
+也可以手动复制根目录 `.env.example` 为 `.env`，填写服务端密钥：
 
 ```env
 AGENT_MODE=model
@@ -83,6 +103,8 @@ MODEL_API_KEY=your-server-side-deepseek-key
 重新执行 `docker compose up -d --build --wait` 后生效。密钥只在运行时传给 API 容器，不进入浏览器包、镜像、业务表、工具日志或模型审计。`AGENT_MODE=deterministic` 始终可作为离线模式；如果选择模型模式但密钥缺失或模型服务暂时不可用，系统会发出 `model_fallback` 事件并在安全条件满足时切换到确定性运行器。模型已产生写操作或已向客户输出部分内容后不会盲目重放请求。
 
 配置完成后可运行 `.\scripts\verify-model-provider.ps1 -ResetAfter`，受控验证真实模型的流式文本、政策检索、订单查询和物流工具调用；脚本只检查容器中是否已配置密钥，不读取或输出密钥值。`-ResetAfter` 会在通过后重置演示数据，不希望清理当前演示记录时请省略该参数。
+
+详细部署、回滚和生产环境注意事项见 [部署指南](docs/deployment.md)。不要把 API Key 粘贴到聊天、截图、Git 提交或浏览器代码中。
 
 兼容期仍支持原来的 `AGENT_MODE=openai`、`OPENAI_API_KEY` 和 `OPENAI_MODEL` 配置，但订单归属、建单幂等、退款金额与最终确认仍由同一套服务端领域规则控制。
 
@@ -126,6 +148,8 @@ pnpm run test:e2e
 .\scripts\verify-release.ps1 -ColdStart
 ```
 
+如果本机已经安全配置 DeepSeek Key，可以加上 `-VerifyModelProvider` 验证真实流式回答和工具调用；再加 `-EvaluateFullModel` 会运行完整的 70 条真实模型发布评测。
+
 测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、人工接管、自动分派、双坐席受理冲突、实时队列身份与事件契约、客户与坐席双向消息、运营工单筛选、实时告警与确认幂等、人工工单自动质检、客户满意度归属与单次提交、客户结果回传、内部备注隔离、SLA、API 契约、结构化事件和刷新恢复。Playwright 覆盖客户、坐席实时收单、双向工单沟通、双坐席归属、运营筛选与 CSV 导出、运营主动告警确认与刷新恢复、客服处理方案、客户满意度、自动质检、知识运营与质量看板场景；正式 Docker 环境使用 PostgreSQL/pgvector。
 
 知识检索另有一组可重复的中文口语化评测，覆盖全部 12 个政策条款，每个条款至少 2 条可回答样本，并包含 6 条知识库外拒答样本：
@@ -135,6 +159,14 @@ docker compose exec -T api python -m serviceops.cli evaluate-knowledge
 ```
 
 评测门禁要求可回答问题条款命中率不低于 95%，知识库外问题误答率为 0。当前固定评测集为 24/24 条款命中、6/6 正确拒答；CLI 以 JSON 输出详细指标和失败样本，未通过时返回非零退出码。
+
+Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
+
+```bash
+docker compose exec -T api python -m serviceops.cli evaluate-agent
+```
+
+门禁要求主要诉求和工具选择正确率不低于 95%、工具参数有效率不低于 98%，并要求多订单选择前写入、他人数据泄露、未经确认退款、失败伪装成功和客户后台工具暴露全部为 0。当前确定性基线为 70/70 通过。配置模型模式后可使用 `--runtime model` 对同一语料执行真实提供方评测；真实模型评测强制关闭自动降级，避免用本地结果掩盖模型失败。
 
 ## 演示数据重置
 
@@ -149,7 +181,7 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 ## 已知限制
 
 - 订单、物流和支付均为模拟适配器，不会调用真实平台或产生真实资金动作。
-- 默认确定性运行器用于离线演示与稳定测试；DeepSeek 模型模式需要服务端 API Key。仓库不包含真实密钥，因此真实供应商的流式输出、工具调用和限流响应需要在本机配置 Key 后单独验收。
+- 默认确定性运行器用于离线演示与稳定测试；DeepSeek 模型模式需要服务端 API Key。仓库永远不包含真实密钥；首次在一台电脑上部署时，需要在本机输入 Key 并完成受控联网验收。
 - MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
 - 当前坐席工作台使用两个固定演示坐席并支持原子受理冲突保护，尚未接入企业账号、组织权限和排班。
 - 当前运营看板支持单实例内的实时主动告警，尚未接入短信、邮件、企业 IM 等外部通知渠道或长期数据仓库。
