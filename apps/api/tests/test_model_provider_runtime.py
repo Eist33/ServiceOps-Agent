@@ -66,6 +66,21 @@ class FailingStream:
         yield  # pragma: no cover
 
 
+class PartialFailingStream:
+    final_output = None
+    context_wrapper = SimpleNamespace(usage=Usage())
+
+    async def stream_events(self):
+        yield SimpleNamespace(
+            type="raw_response_event",
+            data=SimpleNamespace(
+                type="response.output_text.delta",
+                delta="正在处理",
+            ),
+        )
+        raise RuntimeError("secret provider detail")
+
+
 def collect(agent, conversation_id, content):
     async def run():
         return [
@@ -231,7 +246,7 @@ def test_provider_failure_after_write_does_not_replay_with_fallback(db):
                 payload={"tool_name": "create_ticket", "status": "succeeded"},
             )
         )
-        return FailingStream()
+        return PartialFailingStream()
 
     agent = ModelSupportAgent(
         db,
@@ -250,6 +265,19 @@ def test_provider_failure_after_write_does_not_replay_with_fallback(db):
 
     assert EventType.MODEL_FALLBACK not in [event.type for event in events]
     assert EventType.ERROR in [event.type for event in events]
+    delta = next(event for event in events if event.type == EventType.MESSAGE_DELTA)
+    error = next(event for event in events if event.type == EventType.ERROR)
+    completed = next(
+        event for event in events if event.type == EventType.RESPONSE_COMPLETED
+    )
+    assert error.message_id == delta.message_id == completed.message_id
+    messages = list(
+        db.scalars(select(Message).where(Message.conversation_id == conversation.id))
+    )
+    assert sum(item.role == "agent" for item in messages) == 1
+    assert "模型服务暂时不可用" in next(
+        item.content for item in messages if item.role == "agent"
+    )
     audit = db.scalar(select(ModelInvocation))
     assert audit is not None
     assert audit.fallback_used is False

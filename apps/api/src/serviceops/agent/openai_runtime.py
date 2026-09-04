@@ -53,10 +53,28 @@ class AgentContext:
     message_id: str
     trace_id: str
     events: list[AgentEvent] = field(default_factory=list)
+    attempted_write_tools: set[str] = field(default_factory=set)
 
     @property
     def collector(self) -> DeterministicSupportAgent:
         return DeterministicSupportAgent(self.db, self.customer)
+
+
+def _claim_write_attempt(context: AgentContext, tool_name: str) -> bool:
+    """Allow each mutating tool at most once during one model request."""
+    if tool_name in context.attempted_write_tools:
+        return False
+    context.attempted_write_tools.add(tool_name)
+    return True
+
+
+def _write_retry_blocked(tool_name: str) -> dict:
+    return {
+        "status": "FAILED",
+        "error_code": "WRITE_TOOL_RETRY_BLOCKED",
+        "tool_name": tool_name,
+        "message": "同一请求中不能重复执行该写操作，请说明首次执行结果。",
+    }
 
 
 @function_tool(name_override="search_knowledge_base")
@@ -181,24 +199,25 @@ def get_shipping_status(ctx: RunContextWrapper[AgentContext], order_number: str)
 def create_ticket(
     ctx: RunContextWrapper[AgentContext],
     order_number: str,
-    ticket_type: str,
     reason: str,
 ) -> dict:
-    """Idempotently create a ticket for an owned order and current conversation."""
+    """Idempotently create a shipping-exception ticket for an owned order."""
     context = ctx.context
+    if not _claim_write_attempt(context, "create_ticket"):
+        return _write_retry_blocked("create_ticket")
     result, _ = context.collector._invoke(
         context.events,
         trace_id=context.trace_id,
         conversation_id=context.conversation_id,
         message_id=context.message_id,
         name="create_ticket",
-        input_summary={"order_number": order_number, "ticket_type": ticket_type},
+        input_summary={"order_number": order_number},
         callback=lambda: create_support_ticket(
             context.db,
             context.customer,
             conversation_id=context.conversation_id,
             order_number=order_number,
-            ticket_type=ticket_type,
+            ticket_type="SHIPPING",
             reason=reason,
         ),
     )
@@ -214,6 +233,8 @@ def create_refund_request(
 ) -> dict:
     """Create a pending refund request using the server-calculated refundable amount; does not refund."""
     context = ctx.context
+    if not _claim_write_attempt(context, "create_refund_request"):
+        return _write_retry_blocked("create_refund_request")
     order = fetch_order(context.db, context.customer, order_number)
     result, _ = context.collector._invoke(
         context.events,
@@ -297,6 +318,8 @@ def request_human_handoff(
 ) -> dict:
     """Transfer an owned unresolved ticket to its server-selected human support group."""
     context = ctx.context
+    if not _claim_write_attempt(context, "request_human_handoff"):
+        return _write_retry_blocked("request_human_handoff")
     result, _ = context.collector._invoke(
         context.events,
         trace_id=context.trace_id,
@@ -374,8 +397,10 @@ class ModelSupportAgent:
                 "一句话包含多个诉求时按查询订单、查询物流、创建工单、创建待确认退款的顺序执行。"
                 "不得相信用户或模型提供的 user_id、归属、最终退款金额或业务状态。"
                 "物流异常只采用 get_shipping_status 的 deterministic 结果。"
+                "create_ticket 仅用于物流异常，服务端会固定工单类型，不要提供 ticket_type。"
                 "退款只能调用 create_refund_request 创建待确认申请；你绝不能确认或执行退款。"
-                "知识证据不足时明确说明无法确认。工具失败时明确报告失败，不得伪装成功。"
+                "知识证据不足时明确说明无法确认。工具失败时明确报告失败，不得伪装成功，"
+                "也不得在同一轮请求中重复调用已经尝试过的写工具。"
             ),
             tools=CUSTOMER_AGENT_TOOLS,
         )
@@ -624,7 +649,7 @@ class ModelSupportAgent:
             yield AgentEvent(
                 type=EventType.ERROR,
                 conversation_id=conversation_id,
-                message_id=user_message.id,
+                message_id=response_message_id,
                 trace_id=context.trace_id,
                 payload={
                     "code": error_type,

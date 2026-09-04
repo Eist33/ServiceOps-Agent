@@ -7,6 +7,7 @@ from serviceops.agent.evaluation import (
 )
 from serviceops.agent.intent import CustomerIntent
 from serviceops.agent.providers import ModelConfigurationError
+from serviceops.config import get_settings
 
 
 def test_release_gate_has_required_size_and_scenario_coverage():
@@ -68,8 +69,11 @@ def test_release_gate_fails_closed_when_corpus_is_too_small():
 
 
 def test_real_model_gate_requires_a_server_side_key(monkeypatch):
-    monkeypatch.delenv("MODEL_API_KEY", raising=False)
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
-
-    with pytest.raises(ModelConfigurationError, match="API Key"):
-        evaluate_agent_orchestration(runtime="model", max_cases=1)
+    monkeypatch.setenv("MODEL_API_KEY", "")
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "")
+    get_settings.cache_clear()
+    try:
+        with pytest.raises(ModelConfigurationError, match="API Key"):
+            evaluate_agent_orchestration(runtime="model", max_cases=1)
+    finally:
+        get_settings.cache_clear()

@@ -329,14 +329,21 @@ export default function DemoClient() {
         );
       });
     } else if (event.type === 'error') {
-      setItems((current) => [
-        ...current,
-        {
-          id: `error-${event.trace_id}`,
-          kind: 'error',
+      setItems((current) => {
+        const failure = {
+          id: event.message_id,
+          kind: 'message' as const,
+          role: 'agent' as const,
           text: String(event.payload.message),
-        },
-      ]);
+        };
+        const existing = current.findIndex(
+          (item) => item.id === event.message_id,
+        );
+        if (existing === -1) return [...current, failure];
+        return current.map((item, index) =>
+          index === existing ? failure : item,
+        );
+      });
     }
   }, []);
 

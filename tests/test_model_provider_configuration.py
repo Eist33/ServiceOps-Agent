@@ -51,6 +51,8 @@ def test_customer_stream_accumulates_deltas_and_discloses_fallback() -> None:
 
     assert "event.type === 'model_fallback'" in client
     assert "text: `${item.text}${delta}`" in client
+    assert "id: event.message_id" in client
+    assert "id: `error-${event.trace_id}`" not in client
     assert "| 'model_fallback'" in api_contract
 
 
