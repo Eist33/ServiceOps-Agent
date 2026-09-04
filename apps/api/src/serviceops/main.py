@@ -1,6 +1,6 @@
-import inspect
 import json
-import uuid
+import logging
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -30,6 +30,7 @@ from serviceops.knowledge.management import (
     publish_knowledge_article,
 )
 from serviceops.models import Customer, Operator
+from serviceops.observability import log_request_event, normalize_trace_id
 from serviceops.operations.service import (
     acknowledge_operations_alert,
     operations_alerts,
@@ -112,9 +113,39 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def trace_middleware(request: Request, call_next):
-        request.state.trace_id = request.headers.get("X-Trace-ID") or str(uuid.uuid4())
-        response = await call_next(request)
+        request.state.trace_id = normalize_trace_id(request.headers.get("X-Trace-ID"))
+        started = time.perf_counter()
+        try:
+            response = await call_next(request)
+        except Exception as exc:
+            log_request_event(
+                logging.ERROR,
+                "request_failed",
+                trace_id=request.state.trace_id,
+                method=request.method,
+                path=request.url.path,
+                error_type=type(exc).__name__,
+            )
+            response = JSONResponse(
+                status_code=500,
+                content={
+                    "error": {
+                        "code": "INTERNAL_ERROR",
+                        "message": "服务暂时不可用，请稍后重试",
+                    },
+                    "trace_id": request.state.trace_id,
+                },
+            )
         response.headers["X-Trace-ID"] = request.state.trace_id
+        log_request_event(
+            logging.INFO,
+            "request_completed",
+            trace_id=request.state.trace_id,
+            method=request.method,
+            path=request.url.path,
+            status_code=response.status_code,
+            duration_ms=max(1, int((time.perf_counter() - started) * 1000)),
+        )
         return response
 
     @app.exception_handler(DomainError)
@@ -342,18 +373,24 @@ def create_app() -> FastAPI:
     async def post_message(
         conversation_id: str,
         body: MessageRequest,
+        request: Request,
         db: Session = Depends(get_db),
         customer: Customer = Depends(current_customer),
     ):
-        runtime: object
         if settings.agent_mode == "openai" and settings.openai_api_key:
             from serviceops.agent.openai_runtime import OpenAISupportAgent
 
-            runtime = OpenAISupportAgent(db, customer, settings.openai_model)
+            events = await OpenAISupportAgent(db, customer, settings.openai_model).run(
+                conversation_id,
+                body.content,
+                trace_id=request.state.trace_id,
+            )
         else:
-            runtime = DeterministicSupportAgent(db, customer)
-        result = runtime.run(conversation_id, body.content)
-        events = await result if inspect.isawaitable(result) else result
+            events = DeterministicSupportAgent(db, customer).run(
+                conversation_id,
+                body.content,
+                trace_id=request.state.trace_id,
+            )
 
         async def stream() -> AsyncIterator[str]:
             for event in events:

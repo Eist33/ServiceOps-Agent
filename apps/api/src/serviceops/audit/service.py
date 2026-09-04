@@ -1,12 +1,7 @@
 from sqlalchemy.orm import Session
 
 from serviceops.models import ToolInvocation
-
-SENSITIVE_KEYS = {"user_id", "session_token", "api_key", "payment_details"}
-
-
-def redact(value: dict) -> dict:
-    return {key: "[REDACTED]" if key in SENSITIVE_KEYS else item for key, item in value.items()}
+from serviceops.observability import redact
 
 
 def record_invocation(

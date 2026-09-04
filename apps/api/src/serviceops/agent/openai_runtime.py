@@ -2,10 +2,11 @@ import uuid
 from dataclasses import dataclass, field
 from decimal import Decimal
 
-from agents import Agent, RunContextWrapper, Runner, function_tool
+from agents import Agent, RunConfig, RunContextWrapper, Runner, function_tool
 from sqlalchemy.orm import Session
 
 from serviceops.agent.orchestrator import DeterministicSupportAgent
+from serviceops.config import get_settings
 from serviceops.conversations.service import add_message, get_conversation
 from serviceops.knowledge.service import search_knowledge_base as search_knowledge
 from serviceops.models import Customer
@@ -196,7 +197,13 @@ class OpenAISupportAgent:
             ],
         )
 
-    async def run(self, conversation_id: str, content: str) -> list[AgentEvent]:
+    async def run(
+        self,
+        conversation_id: str,
+        content: str,
+        *,
+        trace_id: str | None = None,
+    ) -> list[AgentEvent]:
         conversation = get_conversation(self.db, self.customer, conversation_id)
         user_message = add_message(self.db, conversation, "user", content)
         context = AgentContext(
@@ -204,9 +211,19 @@ class OpenAISupportAgent:
             customer=self.customer,
             conversation_id=conversation_id,
             message_id=user_message.id,
-            trace_id=str(uuid.uuid4()),
+            trace_id=trace_id or str(uuid.uuid4()),
         )
-        result = await Runner.run(self.agent, content, context=context)
+        settings = get_settings()
+        result = await Runner.run(
+            self.agent,
+            content,
+            context=context,
+            run_config=RunConfig(
+                workflow_name="Harbor Support customer service",
+                group_id=conversation_id,
+                trace_include_sensitive_data=settings.sensitive_tracing_enabled,
+            ),
+        )
         answer = str(result.final_output)
         agent_message = add_message(self.db, conversation, "agent", answer)
         context.events.extend(

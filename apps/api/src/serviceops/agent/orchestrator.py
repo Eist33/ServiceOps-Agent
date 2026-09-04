@@ -32,10 +32,16 @@ class DeterministicSupportAgent:
         self.db = db
         self.customer = customer
 
-    def run(self, conversation_id: str, content: str) -> list[AgentEvent]:
+    def run(
+        self,
+        conversation_id: str,
+        content: str,
+        *,
+        trace_id: str | None = None,
+    ) -> list[AgentEvent]:
         conversation = get_conversation(self.db, self.customer, conversation_id)
         user_message = add_message(self.db, conversation, "user", content)
-        trace_id = str(uuid.uuid4())
+        trace_id = trace_id or str(uuid.uuid4())
         events: list[AgentEvent] = []
         normalized = content.lower()
         try:
