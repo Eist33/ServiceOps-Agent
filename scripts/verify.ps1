@@ -3,7 +3,10 @@ $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $ruff = Join-Path $root '.venv\Scripts\ruff.exe'
 $pytest = Join-Path $root '.venv\Scripts\pytest.exe'
-$pnpm = 'C:\Users\12494\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\fallback\pnpm.cmd'
+$frontendBin = Join-Path $root 'demo\node_modules\.bin'
+$oxlint = Join-Path $frontendBin 'oxlint.CMD'
+$vinext = Join-Path $frontendBin 'vinext.CMD'
+$playwright = Join-Path $frontendBin 'playwright.CMD'
 
 function Assert-Succeeded {
     param(
@@ -29,11 +32,11 @@ $previousCI = $env:CI
 $env:CI = 'true'
 Push-Location (Join-Path $root 'demo')
 try {
-    & $pnpm run lint
+    & $oxlint .
     Assert-Succeeded -Step 'Frontend lint' -ExitCode $LASTEXITCODE
-    & $pnpm run build
+    & $vinext build
     Assert-Succeeded -Step 'Frontend build' -ExitCode $LASTEXITCODE
-    & $pnpm run test:e2e
+    & $playwright test
     Assert-Succeeded -Step 'Frontend end-to-end tests' -ExitCode $LASTEXITCODE
 }
 finally {

@@ -51,6 +51,14 @@ docker-compose.yml        web、api、PostgreSQL/pgvector
 docker compose up --build
 ```
 
+Windows 用户也可以在 Docker Desktop 启动后直接运行：
+
+```powershell
+.\scripts\start-product.ps1
+```
+
+脚本会等待数据库与 API 健康后再打开客户工作台；只想启动服务、不自动打开浏览器时使用 `.\scripts\start-product.ps1 -NoBrowser`。
+
 启动后访问：客户工作台 <http://localhost:3000>，坐席工作台 <http://localhost:3000/agent>，API 文档 <http://localhost:8000/docs>，健康检查 <http://localhost:8000/health>。
 
 默认使用不依赖模型服务的确定性 Agent 模式，四个核心场景可以直接演示。
@@ -101,6 +109,12 @@ cd demo
 pnpm run lint
 pnpm run build
 pnpm run test:e2e
+```
+
+交付前可用一条命令执行 Docker 构建、可选冷启动、迁移版本、四个页面、API 健康、全部自动化测试和演示数据重置：
+
+```powershell
+.\scripts\verify-release.ps1 -ColdStart
 ```
 
 测试覆盖领域状态机、金额、归属、幂等、知识阈值、过期知识、Prompt Injection、人工接管、自动分派、双坐席受理冲突、实时队列身份与事件契约、客户与坐席双向消息、运营工单筛选、实时告警与确认幂等、人工工单自动质检、客户满意度归属与单次提交、客户结果回传、内部备注隔离、SLA、API 契约、结构化事件和刷新恢复。Playwright 覆盖客户、坐席实时收单、双向工单沟通、双坐席归属、运营筛选与 CSV 导出、运营主动告警确认与刷新恢复、客服处理方案、客户满意度、自动质检、知识运营与质量看板场景；正式 Docker 环境使用 PostgreSQL/pgvector。

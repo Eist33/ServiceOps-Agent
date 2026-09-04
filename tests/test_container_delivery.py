@@ -50,6 +50,35 @@ def test_verification_script_is_non_interactive_and_fails_fast() -> None:
     assert "(Join-Path $root 'tests')" in script
     assert "if ($ExitCode -ne 0)" in script
     assert script.count("Assert-Succeeded -Step") == 6
+    assert "C:\\Users\\12494" not in script
+    assert "oxlint.CMD" in script
+    assert "vinext.CMD" in script
+    assert "playwright.CMD" in script
+
+
+def test_one_click_start_waits_for_docker_and_checks_both_services() -> None:
+    script = (ROOT / "scripts" / "start-product.ps1").read_text(encoding="utf-8")
+
+    assert "docker info" in script
+    assert "docker compose up -d --wait" in script
+    assert "http://127.0.0.1:8000/health" in script
+    assert "http://127.0.0.1:3000/" in script
+    assert "[switch]$NoBrowser" in script
+
+
+def test_release_verification_covers_cold_start_migration_routes_and_reset() -> None:
+    script = (ROOT / "scripts" / "verify-release.ps1").read_text(
+        encoding="utf-8"
+    )
+
+    assert "[switch]$ColdStart" in script
+    assert "docker compose stop" in script
+    assert "docker compose up -d --build --wait" in script
+    assert "docker compose exec -T api alembic current" in script
+    for route in ("3000/", "3000/agent", "3000/knowledge", "3000/operations"):
+        assert route in script
+    assert "Join-Path $PSScriptRoot 'verify.ps1'" in script
+    assert "/api/demo/reset" in script
 
 
 def test_compose_allows_both_local_browser_origins() -> None:
