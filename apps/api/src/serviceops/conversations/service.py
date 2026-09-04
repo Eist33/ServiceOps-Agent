@@ -75,6 +75,40 @@ def request_order_selection(
     return orders
 
 
+def set_pending_action(
+    db: Session,
+    customer: Customer,
+    conversation_id: str,
+    action: str,
+    payload: dict | None = None,
+) -> Conversation:
+    conversation = get_conversation(db, customer, conversation_id)
+    conversation.pending_action = action
+    conversation.pending_action_payload = payload or {}
+    conversation.updated_at = utcnow()
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
+def clear_pending_action(
+    db: Session,
+    customer: Customer,
+    conversation_id: str,
+    *,
+    clear_order_selection: bool = False,
+) -> Conversation:
+    conversation = get_conversation(db, customer, conversation_id)
+    conversation.pending_action = None
+    conversation.pending_action_payload = None
+    if clear_order_selection:
+        conversation.order_selection_pending = False
+    conversation.updated_at = utcnow()
+    db.commit()
+    db.refresh(conversation)
+    return conversation
+
+
 def order_snapshot(order: Order) -> dict:
     return {
         "id": order.id,
@@ -181,6 +215,7 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             "id": conversation.id,
             "updated_at": conversation.updated_at.isoformat(),
             "order_selection_pending": conversation.order_selection_pending,
+            "pending_action": conversation.pending_action,
         },
         "active_order": order_snapshot(active_order) if active_order else None,
         "order_selection": {

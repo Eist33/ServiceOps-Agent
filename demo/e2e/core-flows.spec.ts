@@ -1,4 +1,9 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function sendNaturalLanguage(page: Page, content: string) {
+  await page.getByLabel('输入售后问题').fill(content);
+  await page.getByRole('button', { name: '发送消息' }).click();
+}
 
 test.beforeEach(async ({ page, request }) => {
   await request.post('http://127.0.0.1:8000/api/demo/reset', {
@@ -32,19 +37,13 @@ test.beforeEach(async ({ page, request }) => {
 });
 
 test('政策问答展示知识来源与工具证据', async ({ page }) => {
-  await page
-    .getByRole('button', { name: /咨询退货政策/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(page, '我收到商品后发现不合适，多少天内可以退货？');
   await expect(page.getByText(/已调用 search_knowledge_base/)).toBeVisible();
   await expect(page.getByText(/来源：平台退换货规则 2026-07/)).toBeVisible();
 });
 
 test('订单物流由工具返回确定性异常', async ({ page }) => {
-  await page
-    .getByRole('button', { name: /查询订单物流/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(page, '订单 ORD-20260828-1042 的快递到哪里了？');
   await expect(page.getByText(/已调用 get_order/)).toBeVisible();
   await expect(page.getByText(/已调用 get_shipping_status/)).toBeVisible();
   await expect(page.getByText(/系统规则判定为运输停滞/)).toBeVisible();
@@ -72,10 +71,10 @@ test('自然语言触发最近三笔订单选择并在刷新后恢复活动订�
 });
 
 test('新会话创建独立物流工单', async ({ page }) => {
-  await page
-    .getByRole('button', { name: /物流异常建单/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的物流一直没动，帮我催一下。',
+  );
   await expect(page.getByText(/已调用 create_ticket/)).toBeVisible();
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await expect(page.getByText(/TK-/).last()).toBeVisible();
@@ -85,10 +84,11 @@ test('新会话创建独立物流工单', async ({ page }) => {
   )?.[0];
   expect(firstTicketNumber).toBeTruthy();
 
-  await page
-    .getByRole('button', { name: /物流异常建单/ })
-    .first()
-    .click();
+  await page.getByRole('button', { name: '新对话' }).click();
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的物流一直没动，帮我催一下。',
+  );
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await expect(businessContext.getByText(/TK-/)).toBeVisible();
   await expect(businessContext.getByText('处理中')).toBeVisible();
@@ -109,10 +109,10 @@ test('新会话创建独立物流工单', async ({ page }) => {
 
 test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
-  await page
-    .getByRole('button', { name: /物流异常建单/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的物流一直没动，帮我催一下。',
+  );
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await page.getByRole('button', { name: '查看工单详情' }).click();
   await expect(page.getByText('SLA 状态')).toBeVisible();
@@ -361,10 +361,10 @@ test('客户与受理坐席可双向同步工单消息', async ({ page, request,
 });
 
 test('退款必须明确确认后才执行', async ({ page }) => {
-  await page
-    .getByRole('button', { name: /申请退款/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 我不想要了，帮我申请退款。',
+  );
   await expect(page.getByText('退款确认')).toBeVisible();
   await expect(
     page.getByText('¥329.00', { exact: true }).first(),
@@ -424,10 +424,10 @@ test('旧后台地址兼容跳转到新的 staff 路由', async ({ page }) => {
 
 test('运营看板汇总真实工单、人工接管与工具质量', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
-  await page
-    .getByRole('button', { name: /物流异常建单/ })
-    .first()
-    .click();
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的物流一直没动，帮我催一下。',
+  );
   await expect(page.getByText(/已创建物流异常工单 TK-/)).toBeVisible();
   await page.getByRole('button', { name: '查看工单详情' }).click();
   await page.getByRole('button', { name: '转人工处理' }).click();

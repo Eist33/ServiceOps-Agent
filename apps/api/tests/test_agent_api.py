@@ -255,9 +255,138 @@ def test_refund_flow_requires_approval(client):
     assert state["refunds"][0]["status"] == "PENDING_CONFIRMATION"
 
 
+def test_refund_missing_reason_is_asked_and_resumed_on_next_turn(client):
+    conversation_id = new_conversation(client)
+    client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260828-1042"},
+    )
+
+    first = run_agent(client, conversation_id, "帮我申请退款")
+    assert "approval_required" not in event_types(first)
+    question = next(event for event in first if event["type"] == "message_delta")
+    assert "退款的原因" in question["payload"]["delta"]
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] == "REFUND_REASON"
+    assert state["refunds"] == []
+
+    small_talk = run_agent(client, conversation_id, "你好")
+    assert "approval_required" not in event_types(small_talk)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] == "REFUND_REASON"
+    assert state["refunds"] == []
+
+    interruption = run_agent(client, conversation_id, "物流到哪了？")
+    assert "approval_required" not in event_types(interruption)
+    assert any(
+        event["payload"].get("tool_name") == "get_shipping_status"
+        for event in interruption
+        if event["type"] == "tool_completed"
+    )
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] == "REFUND_REASON"
+    assert state["refunds"] == []
+
+    second = run_agent(client, conversation_id, "商品有质量问题")
+    assert "approval_required" in event_types(second)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] is None
+    assert state["refunds"][0]["reason"] == "商品有质量问题"
+
+
+def test_selecting_order_resumes_pending_natural_language_action(client):
+    conversation_id = new_conversation(client)
+    first = run_agent(client, conversation_id, "帮我查一下快递")
+    assert "order_selection_required" in event_types(first)
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] == "SHIPPING_QUERY"
+
+    client.post(
+        f"/api/conversations/{conversation_id}/active-order",
+        json={"order_number": "ORD-20260828-1042"},
+    )
+    resumed = run_agent(
+        client,
+        conversation_id,
+        "我选择订单 ORD-20260828-1042，请继续处理刚才的问题。",
+    )
+    tools = [
+        event["payload"]["tool_name"]
+        for event in resumed
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["get_order", "get_shipping_status"]
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] is None
+
+
+def test_customer_can_cancel_an_incomplete_action_without_writes(client):
+    conversation_id = new_conversation(client)
+    first = run_agent(client, conversation_id, "帮我申请退款")
+    assert "order_selection_required" in event_types(first)
+
+    cancelled = run_agent(client, conversation_id, "算了")
+    message = next(
+        event for event in cancelled if event["type"] == "message_delta"
+    )
+    assert "没有产生新的业务写入" in message["payload"]["delta"]
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["conversation"]["pending_action"] is None
+    assert state["order_selection"]["required"] is False
+    assert state["tickets"] == []
+    assert state["refunds"] == []
+
+
+def test_multi_intent_executes_shipping_before_pending_refund(client):
+    conversation_id = new_conversation(client)
+    events = run_agent(
+        client,
+        conversation_id,
+        "订单 ORD-20260828-1042 的物流到哪了？这个商品我不想要了，申请退款。",
+    )
+    tools = [
+        event["payload"]["tool_name"]
+        for event in events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == [
+        "get_order",
+        "get_shipping_status",
+        "get_order",
+        "search_knowledge_base",
+        "create_refund_request",
+    ]
+    assert "approval_required" in event_types(events)
+
+
+def test_ticket_status_and_human_handoff_use_current_conversation_ticket(client):
+    conversation_id = new_conversation(client)
+    run_agent(
+        client,
+        conversation_id,
+        "ORD-20260828-1042 物流没更新，帮我催一下",
+    )
+
+    status_events = run_agent(client, conversation_id, "刚才的工单处理了吗？")
+    status_tool = next(
+        event for event in status_events if event["type"] == "tool_completed"
+    )
+    assert status_tool["payload"]["tool_name"] == "get_current_ticket"
+
+    handoff_events = run_agent(client, conversation_id, "我要转人工客服")
+    tools = [
+        event["payload"]["tool_name"]
+        for event in handoff_events
+        if event["type"] == "tool_completed"
+    ]
+    assert tools == ["get_current_ticket", "request_human_handoff"]
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    assert state["tickets"][0]["handoff_status"] == "ASSIGNED"
+
+
 def test_refund_api_is_idempotent(client):
     conversation_id = new_conversation(client)
-    events = run_agent(client, conversation_id, "ORD-20260828-1042 申请退款")
+    events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
     refund_id = next(
         event["refund_request_id"] for event in events if event["type"] == "approval_required"
     )
@@ -273,7 +402,7 @@ def test_refund_api_is_idempotent(client):
 
 def test_refund_api_rejects_missing_key(client):
     conversation_id = new_conversation(client)
-    events = run_agent(client, conversation_id, "ORD-20260828-1042 申请退款")
+    events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
     refund_id = next(
         event["refund_request_id"] for event in events if event["type"] == "approval_required"
     )
@@ -321,7 +450,7 @@ def test_stream_events_have_correlation_ids(client):
 
 def test_demo_reset_restores_repeatable_state(client):
     conversation_id = new_conversation(client)
-    events = run_agent(client, conversation_id, "ORD-20260828-1042 申请退款")
+    events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
     refund_id = next(
         event["refund_request_id"] for event in events if event["type"] == "approval_required"
     )

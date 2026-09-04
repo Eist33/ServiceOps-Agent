@@ -2,13 +2,12 @@
 
 // oxlint-disable next/no-html-link-for-pages -- Vinext Docker navigation requires full document requests.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
   Box,
   Check,
   CheckCircle2,
-  ChevronRight,
   CircleAlert,
   Clock3,
   Headphones,
@@ -17,13 +16,9 @@ import {
   PackageCheck,
   ReceiptText,
   RotateCcw,
-  Search,
   Send,
-  ShieldCheck,
-  Sparkles,
   Star,
   TicketCheck,
-  Truck,
   UserRoundCheck,
   X,
 } from 'lucide-react';
@@ -82,7 +77,6 @@ type PageModelContext = {
   ) => void | Promise<void>;
 };
 
-type ScenarioId = 'policy' | 'shipping' | 'ticket' | 'refund';
 type TimelineItem =
   | { id: string; kind: 'message'; role: 'user' | 'agent'; text: string }
   | {
@@ -103,47 +97,30 @@ type TimelineItem =
     }
   | { id: string; kind: 'error'; text: string };
 
-const ORDER_NUMBER = 'ORD-20260828-1042';
 const STORAGE_KEY = 'harbor-support-conversation';
-const scenarios = [
+const suggestedPrompts = [
   {
-    id: 'policy' as const,
-    icon: Search,
-    title: '咨询退货政策',
-    note: '知识库问答',
-    tone: 'text-sky-700 bg-sky-50',
-    prompt: '我收到商品后发现不太合适，多少天内可以申请退货？',
+    label: '收到后几天能退？',
+    prompt: '我收到商品后发现不太合适，多少天内可以退货？',
   },
   {
-    id: 'shipping' as const,
-    icon: Truck,
-    title: '查询订单物流',
-    note: '调用订单工具',
-    tone: 'text-indigo-700 bg-indigo-50',
-    prompt: `帮我查一下订单 ${ORDER_NUMBER} 到哪里了？已经好几天没更新。`,
+    label: '帮我查一下快递',
+    prompt: '帮我查一下快递到哪里了？',
   },
   {
-    id: 'ticket' as const,
-    icon: TicketCheck,
-    title: '物流异常建单',
-    note: '幂等创建工单',
-    tone: 'text-amber-700 bg-amber-50',
-    prompt: `物流两天没动了，帮我催一下。订单号是 ${ORDER_NUMBER}。`,
+    label: '物流没动，帮我催一下',
+    prompt: '物流好几天没动了，帮我催一下。',
   },
   {
-    id: 'refund' as const,
-    icon: PackageCheck,
-    title: '申请退款',
-    note: '需要用户确认',
-    tone: 'text-rose-700 bg-rose-50',
-    prompt: `订单 ${ORDER_NUMBER} 我不想要了，帮我申请退款。`,
+    label: '这个订单我不想要了',
+    prompt: '这个订单我不想要了，帮我申请退款。',
   },
 ];
 const welcome: TimelineItem = {
   id: 'welcome',
   kind: 'message',
   role: 'agent',
-  text: '你好，我是售后服务助手。你可以咨询退换货政策，或提供订单号查询物流、创建工单和申请退款。',
+  text: '你好，我是售后服务助手。直接告诉我遇到了什么问题，我会判断需要查询政策、订单、物流，还是协助处理工单或退款。',
 };
 
 function displayValue(value: unknown) {
@@ -174,7 +151,6 @@ function toolSummary(result?: Record<string, unknown>) {
 }
 
 export default function DemoClient() {
-  const [activeScenario, setActiveScenario] = useState<ScenarioId>('shipping');
   const [conversationId, setConversationId] = useState('');
   const [items, setItems] = useState<TimelineItem[]>([welcome]);
   const [state, setState] = useState<ConversationState | null>(null);
@@ -377,17 +353,22 @@ export default function DemoClient() {
     await runPrompt(conversationId, value);
   }
 
-  async function chooseScenario(id: ScenarioId) {
+  async function beginNewConversation() {
     if (busy) return;
-    setActiveScenario(id);
-    const scenario = scenarios.find((item) => item.id === id);
-    if (!scenario) return;
+    setBusy(true);
+    setError('');
     try {
-      const fresh = await startFreshConversation();
-      await runPrompt(fresh, scenario.prompt);
+      await startFreshConversation();
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : '场景执行失败');
+      setError(caught instanceof Error ? caught.message : '新建对话失败');
+    } finally {
+      setBusy(false);
     }
+  }
+
+  async function sendSuggestion(prompt: string) {
+    if (busy || !conversationId) return;
+    await runPrompt(conversationId, prompt);
   }
 
   async function createTicketFromChat() {
@@ -419,11 +400,18 @@ export default function DemoClient() {
     if (!conversationId || busy) return;
     setBusy(true);
     setError('');
+    const pendingAction = state?.conversation.pending_action;
     try {
       const selected = await selectActiveOrder(conversationId, orderNumber);
       setOrder(selected);
       setShipping(null);
       await refreshState(conversationId);
+      if (pendingAction) {
+        await runPrompt(
+          conversationId,
+          `我选择订单 ${orderNumber}，请继续处理刚才的问题。`,
+        );
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '选择订单失败');
     } finally {
@@ -654,20 +642,10 @@ export default function DemoClient() {
     conversationId,
     refreshState,
   ]);
-  const currentScenario = useMemo(
-    () => scenarios.find((item) => item.id === activeScenario) ?? scenarios[1],
-    [activeScenario],
-  );
-
   return (
     <main className="min-h-screen bg-background text-foreground">
       <Header />
-      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-[1680px] grid-cols-1 lg:grid-cols-[270px_minmax(0,1fr)] xl:grid-cols-[270px_minmax(0,1fr)_330px]">
-        <ScenarioNav
-          active={activeScenario}
-          conversationId={conversationId}
-          onChoose={chooseScenario}
-        />
+      <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-[1440px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="flex h-[calc(100vh-4rem)] min-w-0 flex-col bg-[#fbfcfc]">
           <div className="flex items-center justify-between border-b border-border/70 bg-white px-4 py-3.5 sm:px-6">
             <div className="flex items-center gap-3">
@@ -677,8 +655,8 @@ export default function DemoClient() {
                   <h1 className="text-sm font-semibold">售后服务助手</h1>
                   <span className="size-1.5 rounded-full bg-emerald-500" />
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  {currentScenario.title} · 测试客户 林沐
+                <p className="text-xs text-muted-foreground">
+                  演示客户 林沐 · 直接描述问题即可
                 </p>
               </div>
             </div>
@@ -699,22 +677,11 @@ export default function DemoClient() {
                 variant="outline"
                 size="sm"
                 disabled={busy}
-                onClick={() => void startFreshConversation()}
+                onClick={() => void beginNewConversation()}
               >
                 <MessageSquareText /> 新对话
               </Button>
             </div>
-          </div>
-          <div className="flex gap-2 overflow-x-auto border-b bg-white px-4 py-2.5 lg:hidden">
-            {scenarios.map((scenario) => (
-              <button
-                key={scenario.id}
-                onClick={() => void chooseScenario(scenario.id)}
-                className={`shrink-0 rounded-full border px-3 py-1.5 text-xs ${activeScenario === scenario.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-white'}`}
-              >
-                {scenario.title}
-              </button>
-            ))}
           </div>
           <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-7">
             <div className="mx-auto max-w-3xl space-y-4">
@@ -734,6 +701,12 @@ export default function DemoClient() {
                   />
                 ))
               )}
+              {!initializing && items.length === 1 && !busy && (
+                <SuggestionPrompts
+                  disabled={!conversationId}
+                  onChoose={sendSuggestion}
+                />
+              )}
               {state?.order_selection.required &&
                 state.order_selection.orders.length > 0 && (
                   <OrderSelectionCards
@@ -751,8 +724,7 @@ export default function DemoClient() {
                   </div>
                 </div>
               )}
-              {activeScenario === 'shipping' &&
-                shipping?.abnormal &&
+              {shipping?.abnormal &&
                 !activeTicket &&
                 !busy && (
                   <div className="ml-11 flex gap-2">
@@ -836,69 +808,32 @@ function Header() {
   );
 }
 
-function ScenarioNav({
-  active,
-  conversationId,
+function SuggestionPrompts({
+  disabled,
   onChoose,
 }: {
-  active: ScenarioId;
-  conversationId: string;
-  onChoose: (id: ScenarioId) => Promise<void>;
+  disabled: boolean;
+  onChoose: (prompt: string) => Promise<void>;
 }) {
   return (
-    <aside className="hidden border-r bg-[#f7f9fa] p-4 lg:block">
-      <div className="mb-5 flex items-center justify-between px-2">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-            验收场景
-          </p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            点击运行真实业务闭环
-          </p>
-        </div>
-        <Sparkles className="size-4 text-primary" />
-      </div>
-      <nav className="space-y-2">
-        {scenarios.map((scenario) => (
+    <div className="ml-11 rounded-2xl border border-dashed bg-white/70 p-4">
+      <p className="text-sm font-semibold">你可以这样问</p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        {suggestedPrompts.map((item) => (
           <button
-            className={`group flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${active === scenario.id ? 'border-primary/20 bg-white shadow-sm' : 'border-transparent hover:bg-white'}`}
-            key={scenario.id}
-            onClick={() => void onChoose(scenario.id)}
+            className="rounded-full border bg-white px-3 py-2 text-left text-sm transition hover:border-primary/40 hover:bg-primary/5 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={disabled}
+            key={item.label}
+            onClick={() => void onChoose(item.prompt)}
           >
-            <span
-              className={`grid size-9 place-items-center rounded-lg ${scenario.tone}`}
-            >
-              <scenario.icon className="size-4" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-medium">
-                {scenario.title}
-              </span>
-              <span className="block text-[11px] text-muted-foreground">
-                {scenario.note}
-              </span>
-            </span>
-            <ChevronRight className="size-4 text-muted-foreground/50" />
+            {item.label}
           </button>
         ))}
-      </nav>
-      <div className="mt-6 rounded-xl border bg-white p-3 text-xs">
-        <p className="font-medium">
-          {conversationId ? `CNV-${conversationId.slice(0, 8)}` : '正在连接…'}
-        </p>
-        <p className="mt-1 text-muted-foreground">
-          消息、工具调用和业务对象均持久化
-        </p>
       </div>
-      <div className="mt-6 rounded-2xl bg-[#eaf1f4] p-4">
-        <div className="flex items-center gap-2 text-xs font-semibold text-[#31546a]">
-          <ShieldCheck className="size-4" /> 安全边界
-        </div>
-        <p className="mt-2 text-xs leading-5 text-[#547185]">
-          订单归属、异常判定、金额、状态机与幂等均由后端校验。
-        </p>
-      </div>
-    </aside>
+      <p className="mt-3 text-xs leading-5 text-muted-foreground">
+        示例只是普通消息。你也可以用自己的话描述多个问题，系统会按安全顺序处理。
+      </p>
+    </div>
   );
 }
 

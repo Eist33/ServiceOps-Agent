@@ -7,13 +7,21 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from serviceops.agent.intent import (
+    CustomerIntent,
+    plan_customer_intents,
+    refund_reason_from,
+    refund_reason_reply_from,
+)
 from serviceops.audit.service import record_invocation
 from serviceops.conversations.service import (
     add_message,
+    clear_pending_action,
     get_conversation,
     order_snapshot,
     request_order_selection,
     set_active_order,
+    set_pending_action,
 )
 from serviceops.knowledge.service import search_knowledge_base
 from serviceops.models import Customer, Order
@@ -22,7 +30,11 @@ from serviceops.refunds.service import create_refund_request
 from serviceops.shared.errors import DomainError
 from serviceops.shared.schemas import AgentEvent, EventType
 from serviceops.shipping.service import get_shipping_status
-from serviceops.tickets.service import create_ticket
+from serviceops.tickets.service import (
+    create_ticket,
+    get_current_ticket,
+    request_human_handoff,
+)
 
 ORDER_PATTERN = re.compile(r"ORD-[A-Z0-9-]+", re.IGNORECASE)
 
@@ -50,24 +62,99 @@ class DeterministicSupportAgent:
         trace_id = trace_id or str(uuid.uuid4())
         events: list[AgentEvent] = []
         normalized = content.lower()
+        planned_intents = plan_customer_intents(content)
         try:
-            if any(term in normalized for term in ["退款", "退掉", "不想要", "退钱"]):
-                answer = self._refund_flow(
-                    events, trace_id, conversation_id, user_message.id, content
+            if conversation.pending_action and normalized.strip() in {
+                "算了",
+                "不用了",
+                "暂时不用",
+                "取消刚才的操作",
+            }:
+                clear_pending_action(
+                    self.db,
+                    self.customer,
+                    conversation_id,
+                    clear_order_selection=True,
                 )
-            elif any(
-                term in normalized
-                for term in ["物流", "快递", "到哪", "没更新", "催", "工单"]
+                answer = "好的，已取消刚才尚未完成的操作，没有产生新的业务写入。"
+            elif conversation.pending_action and (
+                "继续处理刚才的问题" in normalized
             ):
-                answer = self._shipping_flow(
-                    events, trace_id, conversation_id, user_message.id, content
+                answer = self._resume_pending_action(
+                    events,
+                    trace_id,
+                    conversation_id,
+                    user_message.id,
+                    content,
+                    conversation.pending_action,
+                    conversation.pending_action_payload or {},
                 )
-            elif any(term in normalized for term in ["退货", "几天", "政策", "规则", "换货"]):
-                answer = self._policy_flow(
-                    events, trace_id, conversation_id, user_message.id, content
-                )
+            elif (
+                conversation.pending_action == "REFUND_REASON"
+                and not planned_intents
+            ):
+                reason = refund_reason_reply_from(content)
+                if reason:
+                    answer = self._refund_flow(
+                        events,
+                        trace_id,
+                        conversation_id,
+                        user_message.id,
+                        content,
+                        supplied_reason=reason,
+                    )
+                else:
+                    answer = (
+                        "退款申请仍在等待原因。请说明商品或履约方面的具体问题；"
+                        "如果不再申请，可以回复“算了”。"
+                    )
             else:
-                answer = "我可以协助查询退换货政策、订单物流、创建异常工单或发起待确认退款。请提供订单号或说明你遇到的问题。"
+                intents = planned_intents
+                if not intents:
+                    answer = (
+                        "我还不能确定你希望处理什么。可以直接描述商品、订单、快递、"
+                        "退款或人工客服方面的问题。"
+                    )
+                else:
+                    preserve_refund_reason = (
+                        conversation.pending_action == "REFUND_REASON"
+                        and CustomerIntent.REFUND not in intents
+                    )
+                    answers: list[str] = []
+                    for intent in intents:
+                        answers.append(
+                            self._dispatch_intent(
+                                intent,
+                                events,
+                                trace_id,
+                                conversation_id,
+                                user_message.id,
+                                content,
+                            )
+                        )
+                        current = get_conversation(
+                            self.db, self.customer, conversation_id
+                        )
+                        if current.order_selection_pending or (
+                            current.pending_action == "REFUND_REASON"
+                            and not preserve_refund_reason
+                        ):
+                            break
+                    if preserve_refund_reason:
+                        current = get_conversation(
+                            self.db, self.customer, conversation_id
+                        )
+                        if current.pending_action is None:
+                            set_pending_action(
+                                self.db,
+                                self.customer,
+                                conversation_id,
+                                "REFUND_REASON",
+                            )
+                        answers.append(
+                            "另外，刚才的退款申请仍在等待你补充退款原因。"
+                        )
+                    answer = "\n\n".join(item for item in answers if item)
             agent_message = add_message(self.db, conversation, "agent", answer)
             events.append(
                 AgentEvent(
@@ -112,6 +199,93 @@ class DeterministicSupportAgent:
             )
         return events
 
+    def _dispatch_intent(
+        self,
+        intent: CustomerIntent,
+        events: list[AgentEvent],
+        trace_id: str,
+        conversation_id: str,
+        message_id: str,
+        content: str,
+    ) -> str:
+        if intent == CustomerIntent.POLICY:
+            return self._policy_flow(
+                events, trace_id, conversation_id, message_id, content
+            )
+        if intent == CustomerIntent.ORDER_LOOKUP:
+            return self._order_flow(
+                events, trace_id, conversation_id, message_id, content
+            )
+        if intent == CustomerIntent.SHIPPING:
+            return self._shipping_flow(
+                events, trace_id, conversation_id, message_id, content
+            )
+        if intent == CustomerIntent.SHIPPING_TICKET:
+            return self._shipping_flow(
+                events,
+                trace_id,
+                conversation_id,
+                message_id,
+                content,
+                force_ticket=True,
+            )
+        if intent == CustomerIntent.TICKET_STATUS:
+            return self._ticket_status_flow(
+                events, trace_id, conversation_id, message_id
+            )
+        if intent == CustomerIntent.HUMAN_HANDOFF:
+            return self._handoff_flow(events, trace_id, conversation_id, message_id)
+        return self._refund_flow(
+            events,
+            trace_id,
+            conversation_id,
+            message_id,
+            content,
+            supplied_reason=refund_reason_from(content),
+        )
+
+    def _resume_pending_action(
+        self,
+        events: list[AgentEvent],
+        trace_id: str,
+        conversation_id: str,
+        message_id: str,
+        content: str,
+        action: str,
+        payload: dict,
+    ) -> str:
+        if action == "SHIPPING_QUERY":
+            return self._shipping_flow(
+                events, trace_id, conversation_id, message_id, content
+            )
+        if action == "SHIPPING_TICKET":
+            return self._shipping_flow(
+                events,
+                trace_id,
+                conversation_id,
+                message_id,
+                content,
+                force_ticket=True,
+            )
+        if action == "ORDER_LOOKUP":
+            return self._order_flow(
+                events, trace_id, conversation_id, message_id, content
+            )
+        if action in {"REFUND_REQUEST", "REFUND_REASON"}:
+            reason = payload.get("reason")
+            if action == "REFUND_REASON" and "继续处理刚才的问题" not in content:
+                reason = refund_reason_reply_from(content)
+            return self._refund_flow(
+                events,
+                trace_id,
+                conversation_id,
+                message_id,
+                content,
+                supplied_reason=reason,
+            )
+        clear_pending_action(self.db, self.customer, conversation_id)
+        return "已选择订单。请继续说明需要处理的具体问题。"
+
     def _resolve_order(
         self,
         events: list[AgentEvent],
@@ -120,6 +294,8 @@ class DeterministicSupportAgent:
         conversation_id: str,
         message_id: str,
         content: str,
+        pending_action: str,
+        pending_payload: dict | None = None,
     ) -> tuple[Order | None, str | None]:
         conversation = get_conversation(self.db, self.customer, conversation_id)
         match = ORDER_PATTERN.search(content)
@@ -166,6 +342,7 @@ class DeterministicSupportAgent:
             callback=lambda: list_recent_orders(self.db, self.customer),
         )
         if not orders:
+            clear_pending_action(self.db, self.customer, conversation_id)
             return None, "当前账号没有可用订单，我暂时无法继续执行订单相关操作。"
         if len(orders) == 1:
             order = orders[0]
@@ -175,6 +352,13 @@ class DeterministicSupportAgent:
             )
             return order, None
 
+        set_pending_action(
+            self.db,
+            self.customer,
+            conversation_id,
+            pending_action,
+            pending_payload,
+        )
         request_order_selection(self.db, self.customer, conversation_id)
         events.append(
             AgentEvent(
@@ -341,13 +525,41 @@ class DeterministicSupportAgent:
         source = result["results"][0]
         return f"{source['content']}（来源：{source['title']} {source['version']}，{source['section']}）"
 
-    def _shipping_flow(self, events, trace_id, conversation_id, message_id, content) -> str:
+    def _order_flow(self, events, trace_id, conversation_id, message_id, content) -> str:
         order, blocker = self._resolve_order(
             events,
             trace_id=trace_id,
             conversation_id=conversation_id,
             message_id=message_id,
             content=content,
+            pending_action="ORDER_LOOKUP",
+        )
+        if order is None:
+            return blocker or "请先选择需要查询的订单。"
+        clear_pending_action(self.db, self.customer, conversation_id)
+        return (
+            f"当前处理的是订单 {order.order_number}，商品为{order.product_name}，"
+            f"订单状态为 {order.status}，实付金额 ¥{order.paid_amount}。"
+        )
+
+    def _shipping_flow(
+        self,
+        events,
+        trace_id,
+        conversation_id,
+        message_id,
+        content,
+        *,
+        force_ticket: bool = False,
+    ) -> str:
+        pending_action = "SHIPPING_TICKET" if force_ticket else "SHIPPING_QUERY"
+        order, blocker = self._resolve_order(
+            events,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            content=content,
+            pending_action=pending_action,
         )
         if order is None:
             return blocker or "请先选择需要处理的订单。"
@@ -361,7 +573,9 @@ class DeterministicSupportAgent:
             input_summary={"order_number": order_number},
             callback=lambda: get_shipping_status(self.db, self.customer, order_number),
         )
-        wants_ticket = any(term in content for term in ["催", "工单", "帮我处理", "创建"])
+        wants_ticket = force_ticket or any(
+            term in content for term in ["催", "工单", "帮我处理", "创建"]
+        )
         if wants_ticket and shipping.abnormal:
             ticket, _ = self._invoke(
                 events,
@@ -398,24 +612,113 @@ class DeterministicSupportAgent:
                     },
                 )
             )
+            clear_pending_action(self.db, self.customer, conversation_id)
             return f"已创建物流异常工单 {ticket.ticket_number}。物流已停滞 {shipping.stale_hours} 小时，客服会继续跟进。"
         latest = shipping.nodes[0] if shipping.nodes else None
         location = latest["location"] if latest else "暂无物流节点"
+        clear_pending_action(self.db, self.customer, conversation_id)
         if shipping.abnormal:
             return f"订单 {order.order_number} 当前停留在{location}，已 {shipping.stale_hours} 小时没有更新，系统规则判定为运输停滞。需要的话我可以创建物流异常工单。"
         return f"订单 {order.order_number} 当前物流正常，最新节点是{location}。"
 
-    def _refund_flow(self, events, trace_id, conversation_id, message_id, content) -> str:
+    def _ticket_status_flow(
+        self, events, trace_id, conversation_id, message_id
+    ) -> str:
+        ticket, _ = self._invoke(
+            events,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            name="get_current_ticket",
+            input_summary={},
+            callback=lambda: get_current_ticket(
+                self.db, self.customer, conversation_id
+            ),
+        )
+        if ticket is None:
+            return "当前会话还没有关联工单。请先描述需要处理的问题。"
+        assignee = ticket.assignee_name or "Agent 自动处理"
+        return (
+            f"工单 {ticket.ticket_number} 当前状态为 {ticket.status}，"
+            f"处理方是{assignee}。"
+        )
+
+    def _handoff_flow(self, events, trace_id, conversation_id, message_id) -> str:
+        ticket, _ = self._invoke(
+            events,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            name="get_current_ticket",
+            input_summary={},
+            callback=lambda: get_current_ticket(
+                self.db, self.customer, conversation_id
+            ),
+        )
+        if ticket is None:
+            return "当前会话还没有可转人工的工单。请先说明具体问题，我会先查询并处理。"
+        handed_off, _ = self._invoke(
+            events,
+            trace_id=trace_id,
+            conversation_id=conversation_id,
+            message_id=message_id,
+            name="request_human_handoff",
+            input_summary={"ticket_id": ticket.id},
+            callback=lambda: request_human_handoff(
+                self.db, self.customer, ticket.id
+            ),
+        )
+        events.append(
+            AgentEvent(
+                type=EventType.BUSINESS_STATE_CHANGED,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                trace_id=trace_id,
+                ticket_id=handed_off.id,
+                payload={
+                    "object": "ticket",
+                    "status": handed_off.status,
+                    "handoff_status": handed_off.handoff_status,
+                    "assignee_name": handed_off.assignee_name,
+                },
+            )
+        )
+        return (
+            f"工单 {handed_off.ticket_number} 已转交{handed_off.assignee_name}，"
+            "人工客服会在 SLA 时限内继续处理。"
+        )
+
+    def _refund_flow(
+        self,
+        events,
+        trace_id,
+        conversation_id,
+        message_id,
+        content,
+        *,
+        supplied_reason: str | None = None,
+    ) -> str:
         order, blocker = self._resolve_order(
             events,
             trace_id=trace_id,
             conversation_id=conversation_id,
             message_id=message_id,
             content=content,
+            pending_action="REFUND_REQUEST",
+            pending_payload={"reason": supplied_reason},
         )
         if order is None:
             return blocker or "请先选择需要处理的订单。"
         order_number = order.order_number
+        reason = supplied_reason or refund_reason_from(content)
+        if not reason:
+            set_pending_action(
+                self.db,
+                self.customer,
+                conversation_id,
+                "REFUND_REASON",
+            )
+            return "请告诉我申请退款的原因。原因确认后，我只会创建待你确认的退款申请。"
         self._invoke(
             events,
             trace_id=trace_id,
@@ -431,13 +734,13 @@ class DeterministicSupportAgent:
             conversation_id=conversation_id,
             message_id=message_id,
             name="create_refund_request",
-            input_summary={"order_number": order_number, "reason": "用户不再需要商品"},
+            input_summary={"order_number": order_number, "reason": reason},
             callback=lambda: create_refund_request(
                 self.db,
                 self.customer,
                 conversation_id=conversation_id,
                 order_number=order_number,
-                reason="不想要了",
+                reason=reason,
                 requested_amount=Decimal(order.refundable_amount),
             ),
         )
@@ -460,4 +763,5 @@ class DeterministicSupportAgent:
                 },
             )
         )
+        clear_pending_action(self.db, self.customer, conversation_id)
         return f"已为订单 {order.order_number} 创建待确认退款申请 {refund.refund_number}，金额 ¥{refund.amount}。只有你明确确认后，后端才会模拟执行退款。"

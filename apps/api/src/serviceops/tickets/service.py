@@ -132,6 +132,27 @@ def get_ticket(db: Session, customer: Customer, ticket_id: str) -> Ticket:
     return ticket
 
 
+def get_current_ticket(
+    db: Session,
+    customer: Customer,
+    conversation_id: str,
+) -> Ticket | None:
+    conversation = db.get(Conversation, conversation_id)
+    if not conversation:
+        raise NotFoundError("会话不存在")
+    if conversation.customer_id != customer.id:
+        raise ForbiddenError("无法访问该会话")
+    return db.scalar(
+        select(Ticket)
+        .where(
+            Ticket.customer_id == customer.id,
+            Ticket.conversation_id == conversation_id,
+        )
+        .order_by(Ticket.created_at.desc())
+        .limit(1)
+    )
+
+
 def request_human_handoff(
     db: Session,
     customer: Customer,

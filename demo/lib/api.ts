@@ -75,6 +75,7 @@ export type ConversationState = {
     id: string;
     updated_at: string;
     order_selection_pending: boolean;
+    pending_action: string | null;
   };
   active_order: OrderData | null;
   order_selection: {

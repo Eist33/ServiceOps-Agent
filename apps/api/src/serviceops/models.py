@@ -152,6 +152,8 @@ class Conversation(Base):
         ForeignKey("orders.id"), nullable=True, index=True
     )
     order_selection_pending: Mapped[bool] = mapped_column(Boolean, default=False)
+    pending_action: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    pending_action_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
