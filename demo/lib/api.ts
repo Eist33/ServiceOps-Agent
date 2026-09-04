@@ -55,8 +55,17 @@ export type TicketData = {
     handled_by: string;
     resolved_at: string;
   } | null;
+  feedback: CustomerFeedbackData | null;
   messages: TicketMessageData[];
   created_at: string;
+};
+
+export type CustomerFeedbackData = {
+  id: string;
+  ticket_id: string;
+  rating: number;
+  comment: string | null;
+  submitted_at: string;
 };
 
 export type ConversationState = {
@@ -255,6 +264,9 @@ export type OperationsQualityReportData = {
   qualified: number;
   attention: number;
   average_score: number;
+  feedback_received: number;
+  low_ratings: number;
+  average_customer_rating: number;
   items: Array<{
     ticket_id: string;
     ticket_number: string;
@@ -272,6 +284,9 @@ export type OperationsQualityReportData = {
       score: number;
       max_score: number;
     }>;
+    customer_rating: number | null;
+    customer_comment: string | null;
+    feedback_submitted_at: string | null;
   }>;
 };
 
@@ -455,6 +470,16 @@ export const sendCustomerTicketMessage = (ticketId: string, content: string) =>
       body: JSON.stringify({ content }),
     },
   );
+
+export const submitCustomerFeedback = (
+  ticketId: string,
+  rating: number,
+  comment: string,
+) =>
+  request<CustomerFeedbackData>(`/api/tickets/${ticketId}/feedback`, {
+    method: 'POST',
+    body: JSON.stringify({ rating, comment: comment.trim() || null }),
+  });
 
 export const confirmRefund = (refundId: string, key: string) =>
   request<ConversationState['refunds'][number]>(

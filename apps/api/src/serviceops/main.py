@@ -18,6 +18,7 @@ from serviceops.conversations.service import (
     create_conversation,
 )
 from serviceops.database import Base, engine, get_db
+from serviceops.feedback.service import submit_customer_feedback
 from serviceops.identity.service import (
     current_customer,
     current_operator,
@@ -46,6 +47,8 @@ from serviceops.shared.schemas import (
     AgentTicketResolveRequest,
     AgentTicketResponse,
     ConversationCreateResponse,
+    CustomerFeedbackRequest,
+    CustomerFeedbackResponse,
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
     MessageRequest,
@@ -410,6 +413,24 @@ def create_app() -> FastAPI:
     ):
         ticket = add_customer_ticket_message(db, customer, ticket_id, body.content)
         return ticket_response(db, ticket)
+
+    @app.post(
+        "/api/tickets/{ticket_id}/feedback",
+        response_model=CustomerFeedbackResponse,
+    )
+    def submit_ticket_feedback(
+        ticket_id: str,
+        body: CustomerFeedbackRequest,
+        db: Session = Depends(get_db),
+        customer: Customer = Depends(current_customer),
+    ):
+        return submit_customer_feedback(
+            db,
+            customer,
+            ticket_id,
+            rating=body.rating,
+            comment=body.comment,
+        )
 
     @app.post("/api/tickets/{ticket_id}/handoff", response_model=TicketResponse)
     def handoff_ticket_endpoint(

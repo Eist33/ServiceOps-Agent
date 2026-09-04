@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from serviceops.models import (
     Conversation,
     Customer,
+    CustomerSatisfactionFeedback,
     IdempotencyRecord,
     KnowledgeArticle,
     Message,
@@ -174,6 +175,7 @@ def reset_demo_state(db: Session) -> None:
         IdempotencyRecord,
         ToolInvocation,
         RefundRequest,
+        CustomerSatisfactionFeedback,
         OperationsAlertAcknowledgement,
         TicketEvent,
         Ticket,

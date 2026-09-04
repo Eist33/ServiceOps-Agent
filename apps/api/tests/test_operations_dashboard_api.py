@@ -69,6 +69,9 @@ def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
         "qualified": 0,
         "attention": 0,
         "average_score": 0.0,
+        "feedback_received": 0,
+        "low_ratings": 0,
+        "average_customer_rating": 0.0,
         "items": [],
     }
 
@@ -298,6 +301,20 @@ def test_quality_report_scores_only_resolved_human_tickets(client, db):
 
     complete = create_human_ticket(complete=True)
     incomplete = create_human_ticket(complete=False)
+    assert (
+        client.post(
+            f"/api/tickets/{complete['id']}/feedback",
+            json={"rating": 5, "comment": "处理及时，方案清楚。"},
+        ).status_code
+        == 200
+    )
+    assert (
+        client.post(
+            f"/api/tickets/{incomplete['id']}/feedback",
+            json={"rating": 2, "comment": "没有及时同步进展。"},
+        ).status_code
+        == 200
+    )
 
     response = client.get("/api/ops/quality-reviews", headers=OPS_HEADERS)
     assert response.status_code == 200
@@ -307,6 +324,9 @@ def test_quality_report_scores_only_resolved_human_tickets(client, db):
     assert report["qualified"] == 0
     assert report["attention"] == 1
     assert report["average_score"] == 50.0
+    assert report["feedback_received"] == 2
+    assert report["low_ratings"] == 1
+    assert report["average_customer_rating"] == 3.5
 
     by_ticket = {item["ticket_id"]: item for item in report["items"]}
     excellent = by_ticket[complete["id"]]
@@ -314,6 +334,9 @@ def test_quality_report_scores_only_resolved_human_tickets(client, db):
     assert excellent["grade"] == "EXCELLENT"
     assert excellent["assignee_name"] == "沈清禾"
     assert excellent["customer_name"] == "林沐"
+    assert excellent["customer_rating"] == 5
+    assert excellent["customer_comment"] == "处理及时，方案清楚。"
+    assert excellent["feedback_submitted_at"] is not None
     assert all(check["passed"] for check in excellent["checks"])
 
     attention = by_ticket[incomplete["id"]]

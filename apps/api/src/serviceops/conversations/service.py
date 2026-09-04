@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from serviceops.models import (
     Conversation,
     Customer,
+    CustomerSatisfactionFeedback,
     Message,
     RefundRequest,
     Ticket,
@@ -108,6 +109,18 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
         if ticket_ids
         else []
     )
+    feedback_items = (
+        list(
+            db.scalars(
+                select(CustomerSatisfactionFeedback).where(
+                    CustomerSatisfactionFeedback.ticket_id.in_(ticket_ids)
+                )
+            )
+        )
+        if ticket_ids
+        else []
+    )
+    feedback_by_ticket = {item.ticket_id: item for item in feedback_items}
     return {
         "conversation": {"id": conversation.id, "updated_at": conversation.updated_at.isoformat()},
         "messages": [
@@ -124,6 +137,7 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
                 item,
                 resolution_event=resolution_by_ticket.get(item.id),
                 message_events=events_by_ticket.get(item.id),
+                feedback=feedback_by_ticket.get(item.id),
             )
             for item in tickets
         ],

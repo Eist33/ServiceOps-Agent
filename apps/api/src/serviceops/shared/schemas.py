@@ -154,6 +154,9 @@ class OpsQualityItem(BaseModel):
     score: int
     grade: str
     checks: list[OpsQualityCheck]
+    customer_rating: int | None
+    customer_comment: str | None
+    feedback_submitted_at: datetime | None
 
 
 class OpsQualityReportResponse(BaseModel):
@@ -163,6 +166,9 @@ class OpsQualityReportResponse(BaseModel):
     qualified: int
     attention: int
     average_score: float
+    feedback_received: int
+    low_ratings: int
+    average_customer_rating: float
     items: list[OpsQualityItem]
 
 
@@ -226,6 +232,19 @@ class TicketResolution(BaseModel):
     resolved_at: datetime
 
 
+class CustomerFeedbackRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    comment: str | None = Field(default=None, max_length=500)
+
+
+class CustomerFeedbackResponse(BaseModel):
+    id: str
+    ticket_id: str
+    rating: int
+    comment: str | None
+    submitted_at: datetime
+
+
 class TicketResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -245,6 +264,7 @@ class TicketResponse(BaseModel):
     sla_remaining_minutes: int
     reason: str
     resolution: TicketResolution | None = None
+    feedback: CustomerFeedbackResponse | None = None
     evidence: dict[str, Any]
     created_at: datetime
     updated_at: datetime

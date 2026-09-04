@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from serviceops.models import (
     Conversation,
     Customer,
+    CustomerSatisfactionFeedback,
     HandoffStatus,
     Ticket,
     TicketEvent,
@@ -300,6 +301,7 @@ def ticket_snapshot(
     now: datetime | None = None,
     resolution_event: TicketEvent | None = None,
     message_events: list[TicketEvent] | None = None,
+    feedback: CustomerSatisfactionFeedback | None = None,
 ) -> dict:
     sla_status, remaining_minutes = ticket_sla(ticket, now=now)
     return {
@@ -319,6 +321,17 @@ def ticket_snapshot(
         "sla_remaining_minutes": remaining_minutes,
         "reason": ticket.reason,
         "resolution": _resolution_snapshot(resolution_event),
+        "feedback": (
+            {
+                "id": feedback.id,
+                "ticket_id": feedback.ticket_id,
+                "rating": feedback.rating,
+                "comment": feedback.comment,
+                "submitted_at": feedback.submitted_at,
+            }
+            if feedback
+            else None
+        ),
         "messages": ticket_message_snapshots(message_events or []),
         "created_at": ticket.created_at,
     }
@@ -336,11 +349,17 @@ def ticket_response(db: Session, ticket: Ticket) -> TicketResponse:
         (item for item in reversed(events) if item.action == "STATUS_RESOLVED"),
         None,
     )
+    feedback = db.scalar(
+        select(CustomerSatisfactionFeedback).where(
+            CustomerSatisfactionFeedback.ticket_id == ticket.id
+        )
+    )
     return TicketResponse(
         **ticket_snapshot(
             ticket,
             resolution_event=resolution_event,
             message_events=events,
+            feedback=feedback,
         ),
         evidence=ticket.evidence,
         updated_at=ticket.updated_at,

@@ -18,6 +18,7 @@ import {
   Headphones,
   Loader2,
   ReceiptText,
+  Star,
   TicketCheck,
   TriangleAlert,
   UserRoundCheck,
@@ -481,6 +482,13 @@ export default function OperationsClient() {
                       <Badge className="bg-amber-50 text-amber-700" variant="secondary">
                         待改进 {qualityReport.attention}
                       </Badge>
+                      <Badge className="bg-sky-50 text-sky-700" variant="secondary">
+                        客户评价 {qualityReport.feedback_received} · 均分{' '}
+                        {qualityReport.average_customer_rating.toFixed(1)}
+                      </Badge>
+                      <Badge className="bg-rose-50 text-rose-700" variant="secondary">
+                        低分 {qualityReport.low_ratings}
+                      </Badge>
                     </div>
                   )}
                 </div>
@@ -500,6 +508,7 @@ export default function OperationsClient() {
                         <TableHead>处理坐席</TableHead>
                         <TableHead>得分</TableHead>
                         <TableHead>结果</TableHead>
+                        <TableHead>客户评价</TableHead>
                         <TableHead>检查项</TableHead>
                         <TableHead className="pr-4">解决时间</TableHead>
                       </TableRow>
@@ -525,6 +534,23 @@ export default function OperationsClient() {
                               {item.score} 分
                             </TableCell>
                             <TableCell><QualityBadge grade={item.grade} /></TableCell>
+                            <TableCell>
+                              {item.customer_rating ? (
+                                <div className="max-w-44">
+                                  <span className="flex items-center gap-1 text-xs font-medium text-amber-700">
+                                    <Star className="size-3.5 fill-current" />
+                                    {item.customer_rating} 星
+                                  </span>
+                                  {item.customer_comment && (
+                                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-muted-foreground">
+                                      {item.customer_comment}
+                                    </p>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">待评价</span>
+                              )}
+                            </TableCell>
                             <TableCell>
                               {failedChecks.length ? (
                                 <div className="flex max-w-md flex-wrap gap-1.5">

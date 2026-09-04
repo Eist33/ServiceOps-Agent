@@ -7,9 +7,11 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -219,6 +221,25 @@ class OperationsAlertAcknowledgement(Base):
     acknowledged_by_operator_id: Mapped[str] = mapped_column(ForeignKey("operators.id"))
     acknowledged_by_name: Mapped[str] = mapped_column(String(80))
     acknowledged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CustomerSatisfactionFeedback(Base):
+    __tablename__ = "customer_satisfaction_feedback"
+    __table_args__ = (
+        UniqueConstraint("ticket_id", name="uq_customer_satisfaction_ticket"),
+        CheckConstraint(
+            "rating >= 1 AND rating <= 5",
+            name="ck_customer_satisfaction_rating",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"), index=True)
+    customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), index=True)
+    rating: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    submitted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class RefundRequest(Base):

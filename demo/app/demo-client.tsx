@@ -23,6 +23,7 @@ import {
   Send,
   ShieldCheck,
   Sparkles,
+  Star,
   TicketCheck,
   Truck,
   UserRoundCheck,
@@ -57,7 +58,30 @@ import {
   loadConversation,
   sendCustomerTicketMessage,
   sendMessage,
+  submitCustomerFeedback,
 } from '@/lib/api';
+
+type CustomerFeedbackToolInput = {
+  rating?: unknown;
+  comment?: unknown;
+};
+
+type PageModelContext = {
+  registerTool: (
+    tool: {
+      name: string;
+      title: string;
+      description: string;
+      inputSchema: Record<string, unknown>;
+      annotations: {
+        readOnlyHint: boolean;
+        untrustedContentHint: boolean;
+      };
+      execute: (input: unknown) => Promise<Record<string, unknown>>;
+    },
+    options?: { signal?: AbortSignal },
+  ) => void | Promise<void>;
+};
 
 type ScenarioId = 'policy' | 'shipping' | 'ticket' | 'refund';
 type TimelineItem =
@@ -163,6 +187,7 @@ export default function DemoClient() {
   const [ticketDialogOpen, setTicketDialogOpen] = useState(false);
   const [handoffBusy, setHandoffBusy] = useState(false);
   const [ticketMessageBusy, setTicketMessageBusy] = useState(false);
+  const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -469,8 +494,86 @@ export default function DemoClient() {
     }
   }
 
+  const sendTicketFeedback = useCallback(
+    async (ticketId: string, rating: number, comment: string) => {
+      if (feedbackBusy) throw new Error('满意度评价正在提交，请稍候');
+      setFeedbackBusy(true);
+      setError('');
+      try {
+        await submitCustomerFeedback(ticketId, rating, comment);
+        await refreshState(conversationId);
+      } catch (caught) {
+        setError(caught instanceof Error ? caught.message : '满意度评价提交失败');
+        throw caught;
+      } finally {
+        setFeedbackBusy(false);
+      }
+    },
+    [conversationId, feedbackBusy, refreshState],
+  );
+
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
+  useEffect(() => {
+    if (
+      !activeTicket ||
+      activeTicket.status !== 'RESOLVED' ||
+      activeTicket.feedback
+    ) {
+      return;
+    }
+    const modelContext = (
+      document as Document & { modelContext?: PageModelContext }
+    ).modelContext;
+    if (!modelContext?.registerTool) return;
+
+    const lifecycle = new AbortController();
+    const ticketId = activeTicket.id;
+    void Promise.resolve(
+      modelContext.registerTool(
+        {
+          name: 'submit_customer_satisfaction_feedback',
+          title: '提交客户满意度评价',
+          description: '为当前已解决工单提交一次 1 至 5 星评价和可选意见。',
+          inputSchema: {
+            type: 'object',
+            properties: {
+              rating: { type: 'integer', minimum: 1, maximum: 5 },
+              comment: { type: 'string', maxLength: 500 },
+            },
+            required: ['rating'],
+            additionalProperties: false,
+          },
+          annotations: {
+            readOnlyHint: false,
+            untrustedContentHint: false,
+          },
+          async execute(input) {
+            if (!input || typeof input !== 'object' || Array.isArray(input)) {
+              throw new Error('评价参数必须是对象');
+            }
+            const { rating, comment } = input as CustomerFeedbackToolInput;
+            if (!Number.isInteger(rating) || Number(rating) < 1 || Number(rating) > 5) {
+              throw new Error('满意度评分必须为 1 至 5 的整数');
+            }
+            if (comment !== undefined && typeof comment !== 'string') {
+              throw new Error('评价意见必须是文本');
+            }
+            if (typeof comment === 'string' && comment.length > 500) {
+              throw new Error('评价意见不能超过 500 个字符');
+            }
+            await sendTicketFeedback(ticketId, Number(rating), comment ?? '');
+            return { ticket_id: ticketId, rating, status: 'submitted' };
+          },
+        },
+        { signal: lifecycle.signal },
+      ),
+    ).catch(() => {
+      // WebMCP 是渐进增强能力，注册失败不影响可见表单。
+    });
+
+    return () => lifecycle.abort();
+  }, [activeTicket, sendTicketFeedback]);
   useEffect(() => {
     if (
       !conversationId ||
@@ -624,9 +727,11 @@ export default function DemoClient() {
         ticket={activeTicket}
         busy={handoffBusy}
         messageBusy={ticketMessageBusy}
+        feedbackBusy={feedbackBusy}
         onHandoff={transferTicketToHuman}
         onCancelHandoff={returnTicketToAgent}
         onSendMessage={sendTicketMessage}
+        onSubmitFeedback={sendTicketFeedback}
       />
     </main>
   );
@@ -1121,18 +1226,26 @@ function TicketDialog({
   ticket,
   busy,
   messageBusy,
+  feedbackBusy,
   onHandoff,
   onCancelHandoff,
   onSendMessage,
+  onSubmitFeedback,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   ticket: ConversationState['tickets'][number] | null;
   busy: boolean;
   messageBusy: boolean;
+  feedbackBusy: boolean;
   onHandoff: (ticketId: string) => Promise<void>;
   onCancelHandoff: (ticketId: string) => Promise<void>;
   onSendMessage: (ticketId: string, content: string) => Promise<void>;
+  onSubmitFeedback: (
+    ticketId: string,
+    rating: number,
+    comment: string,
+  ) => Promise<void>;
 }) {
   const [message, setMessage] = useState('');
   const resolved = ticket?.status === 'RESOLVED';
@@ -1297,6 +1410,13 @@ function TicketDialog({
             </dl>
           </section>
         )}
+        {ticket?.resolution && (
+          <CustomerFeedbackPanel
+            ticket={ticket}
+            busy={feedbackBusy}
+            onSubmit={onSubmitFeedback}
+          />
+        )}
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             关闭
@@ -1324,5 +1444,89 @@ function TicketDialog({
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CustomerFeedbackPanel({
+  ticket,
+  busy,
+  onSubmit,
+}: {
+  ticket: ConversationState['tickets'][number];
+  busy: boolean;
+  onSubmit: (ticketId: string, rating: number, comment: string) => Promise<void>;
+}) {
+  const [rating, setRating] = useState(0);
+  const [comment, setComment] = useState('');
+
+  if (ticket.feedback) {
+    return (
+      <section className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+        <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+          <Star className="size-4 fill-current" /> 感谢你的评价
+        </div>
+        <p className="mt-2 text-xs font-medium text-amber-900">
+          已提交 {ticket.feedback.rating} 星评价
+        </p>
+        {ticket.feedback.comment && (
+          <p className="mt-2 text-xs leading-5 text-amber-800">
+            {ticket.feedback.comment}
+          </p>
+        )}
+      </section>
+    );
+  }
+
+  async function submit() {
+    if (!rating || busy) return;
+    try {
+      await onSubmit(ticket.id, rating, comment);
+    } catch {
+      // 页面顶部展示服务端错误，保留选择和评价内容便于重试。
+    }
+  }
+
+  return (
+    <section className="rounded-xl border border-amber-100 bg-amber-50/70 p-4">
+      <div className="flex items-center gap-2 text-sm font-semibold text-amber-900">
+        <Star className="size-4" /> 服务满意度评价
+      </div>
+      <p className="mt-1 text-xs leading-5 text-amber-800">
+        请评价本次处理结果。每张工单只能提交一次，评价会进入运营质量看板。
+      </p>
+      <div className="mt-3 flex gap-1" aria-label="满意度星级">
+        {[1, 2, 3, 4, 5].map((score) => (
+          <Button
+            aria-label={`${score} 星`}
+            aria-pressed={rating === score}
+            className={rating >= score ? 'text-amber-600' : 'text-amber-900/35'}
+            key={score}
+            onClick={() => setRating(score)}
+            size="icon-sm"
+            type="button"
+            variant="ghost"
+          >
+            <Star className={rating >= score ? 'fill-current' : ''} />
+          </Button>
+        ))}
+      </div>
+      <Textarea
+        aria-label="满意度评价补充"
+        className="mt-3 min-h-20 bg-white/70"
+        maxLength={500}
+        onChange={(event) => setComment(event.target.value)}
+        placeholder="可选：告诉我们做得好的地方或需要改进的地方……"
+        value={comment}
+      />
+      <Button
+        className="mt-3 w-full"
+        disabled={!rating || busy}
+        onClick={() => void submit()}
+        type="button"
+      >
+        {busy ? <Loader2 className="animate-spin" /> : <Star />}
+        提交评价
+      </Button>
+    </section>
   );
 }

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from serviceops.models import (
     Customer,
+    CustomerSatisfactionFeedback,
     HandoffStatus,
     KnowledgeArticle,
     OperationsAlertAcknowledgement,
@@ -422,6 +423,20 @@ def operations_quality_report(
     )
     order_numbers = {order.id: order.order_number for order in orders}
     customer_names = {customer.id: customer.name for customer in customers}
+    feedback_items = (
+        list(
+            db.scalars(
+                select(CustomerSatisfactionFeedback).where(
+                    CustomerSatisfactionFeedback.ticket_id.in_(
+                        {ticket.id for ticket in human_tickets}
+                    )
+                )
+            )
+        )
+        if human_tickets
+        else []
+    )
+    feedback_by_ticket = {item.ticket_id: item for item in feedback_items}
 
     items = []
     for ticket in human_tickets:
@@ -474,6 +489,7 @@ def operations_quality_report(
             check["score"] = check["max_score"] if check["passed"] else 0
         score = sum(int(check["score"]) for check in checks)
         grade = "EXCELLENT" if score >= 90 else "QUALIFIED" if score >= 75 else "ATTENTION"
+        feedback = feedback_by_ticket.get(ticket.id)
         items.append(
             {
                 "ticket_id": ticket.id,
@@ -486,10 +502,20 @@ def operations_quality_report(
                 "score": score,
                 "grade": grade,
                 "checks": checks,
+                "customer_rating": feedback.rating if feedback else None,
+                "customer_comment": feedback.comment if feedback else None,
+                "feedback_submitted_at": (
+                    _aware(feedback.submitted_at) if feedback else None
+                ),
             }
         )
 
     items.sort(key=lambda item: item["resolved_at"], reverse=True)
+    ratings = [
+        int(item["customer_rating"])
+        for item in items
+        if item["customer_rating"] is not None
+    ]
     return OpsQualityReportResponse(
         generated_at=current_time,
         total=len(items),
@@ -500,6 +526,11 @@ def operations_quality_report(
             round(sum(int(item["score"]) for item in items) / len(items), 1)
             if items
             else 0
+        ),
+        feedback_received=len(ratings),
+        low_ratings=sum(rating <= 2 for rating in ratings),
+        average_customer_rating=(
+            round(sum(ratings) / len(ratings), 1) if ratings else 0
         ),
         items=items,
     )

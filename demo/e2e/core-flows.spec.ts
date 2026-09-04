@@ -4,6 +4,26 @@ test.beforeEach(async ({ page, request }) => {
   await request.post('http://127.0.0.1:8000/api/demo/reset', {
     headers: { 'X-Demo-Session': 'demo-linmu-session' },
   });
+  await page.addInitScript(() => {
+    type RegisteredTool = {
+      name: string;
+      inputSchema: Record<string, unknown>;
+      annotations: Record<string, unknown>;
+      execute: (input: unknown) => Promise<Record<string, unknown>>;
+    };
+    const scope = window as Window & {
+      __webMcpTools?: Record<string, RegisteredTool>;
+    };
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: {
+        registerTool(tool: RegisteredTool) {
+          scope.__webMcpTools ??= {};
+          scope.__webMcpTools[tool.name] = tool;
+        },
+      },
+    });
+  });
   await page.goto('/');
   await expect(
     page.getByRole('heading', { name: '售后服务助手', exact: true }),
@@ -155,12 +175,69 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await expect(page.getByText('客服处理方案')).toBeVisible();
   await expect(page.getByText('处理人')).toBeVisible();
   await expect(page.getByText('沈清禾').last()).toBeVisible();
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const scope = window as Window & {
+          __webMcpTools?: Record<string, unknown>;
+        };
+        return Boolean(scope.__webMcpTools?.submit_customer_satisfaction_feedback);
+      }),
+    )
+    .toBe(true);
+  const contract = await page.evaluate(() => {
+    const scope = window as Window & {
+      __webMcpTools?: Record<
+        string,
+        { inputSchema: Record<string, unknown>; annotations: Record<string, unknown> }
+      >;
+    };
+    const tool = scope.__webMcpTools?.submit_customer_satisfaction_feedback;
+    return tool
+      ? { inputSchema: tool.inputSchema, annotations: tool.annotations }
+      : null;
+  });
+  expect(contract).toMatchObject({
+    inputSchema: { required: ['rating'], additionalProperties: false },
+    annotations: { readOnlyHint: false, untrustedContentHint: false },
+  });
+  await expect(
+    page.evaluate(async () => {
+      const scope = window as Window & {
+        __webMcpTools?: Record<
+          string,
+          { execute: (input: unknown) => Promise<Record<string, unknown>> }
+        >;
+      };
+      await scope.__webMcpTools?.submit_customer_satisfaction_feedback.execute({
+        rating: 0,
+      });
+    }),
+  ).rejects.toThrow(/1 至 5/);
+  const feedbackResult = await page.evaluate(async () => {
+    const scope = window as Window & {
+      __webMcpTools?: Record<
+        string,
+        { execute: (input: unknown) => Promise<Record<string, unknown>> }
+      >;
+    };
+    return scope.__webMcpTools?.submit_customer_satisfaction_feedback.execute({
+      rating: 5,
+      comment: '回复及时，处理方案清楚。',
+    });
+  });
+  expect(feedbackResult).toMatchObject({ rating: 5, status: 'submitted' });
+  await expect(page.getByText('感谢你的评价')).toBeVisible();
+  await expect(page.getByText('已提交 5 星评价')).toBeVisible();
 
   await page.goto('/operations');
   await expect(page.getByText('人工工单自动质检', { exact: true })).toBeVisible();
   await expect(page.getByText('已质检 1')).toBeVisible();
   await expect(page.getByText('平均 100 分')).toBeVisible();
+  await expect(page.getByText('客户评价 1 · 均分 5.0')).toBeVisible();
   await expect(page.getByText('100 分', { exact: true })).toBeVisible();
+  await expect(page.getByText('5 星', { exact: true })).toBeVisible();
+  await expect(page.getByText('回复及时，处理方案清楚。')).toBeVisible();
   await expect(page.getByText('全部通过')).toBeVisible();
 });
 
