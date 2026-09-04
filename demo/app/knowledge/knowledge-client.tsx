@@ -4,9 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowLeft,
   BookOpenCheck,
-  ChartNoAxesCombined,
   CircleAlert,
   FileClock,
   Loader2,
@@ -26,7 +24,8 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
   Card,
   CardContent,
@@ -179,17 +178,7 @@ export default function KnowledgeClient() {
               <p className="text-[11px] text-muted-foreground">售后知识运营台</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <a
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              href="/operations"
-            >
-              <ChartNoAxesCombined /> 运营看板
-            </a>
-            <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
-              <ArrowLeft /> 返回客服工作台
-            </a>
-          </div>
+          <StaffNavigation active="knowledge" />
         </div>
       </header>
 

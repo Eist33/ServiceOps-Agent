@@ -5,9 +5,7 @@
 import { useEffect, useState } from 'react';
 import {
   Activity,
-  ArrowLeft,
   BellRing,
-  BookOpenText,
   Bot,
   ChartNoAxesCombined,
   CheckCircle2,
@@ -26,7 +24,8 @@ import {
 import { Bar, BarChart, CartesianGrid, XAxis } from 'recharts';
 
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
+import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
   Card,
   CardContent,
@@ -258,17 +257,7 @@ export default function OperationsClient() {
               <p className="text-[11px] text-muted-foreground">客服质量与执行看板</p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            <a
-              className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              href="/knowledge"
-            >
-              <BookOpenText /> 知识运营
-            </a>
-            <a className={buttonVariants({ variant: 'outline', size: 'sm' })} href="/">
-              <ArrowLeft /> 客服工作台
-            </a>
-          </div>
+          <StaffNavigation active="operations" />
         </div>
       </header>
 

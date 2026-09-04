@@ -59,7 +59,7 @@ Windows 用户也可以在 Docker Desktop 启动后直接运行：
 
 脚本会等待数据库与 API 健康后再打开客户工作台；只想启动服务、不自动打开浏览器时使用 `.\scripts\start-product.ps1 -NoBrowser`。
 
-启动后访问：客户工作台 <http://localhost:3000>，坐席工作台 <http://localhost:3000/agent>，API 文档 <http://localhost:8000/docs>，健康检查 <http://localhost:8000/health>。
+启动后访问：客户服务入口 <http://localhost:3000>，客服后台 <http://localhost:3000/staff/agent>，知识运营 <http://localhost:3000/staff/knowledge>，运营看板 <http://localhost:3000/staff/operations>，API 文档 <http://localhost:8000/docs>，健康检查 <http://localhost:8000/health>。客户页面不展示任何后台入口；`/agent`、`/knowledge` 和 `/operations` 旧地址仅保留兼容跳转。
 
 默认使用不依赖模型服务的确定性 Agent 模式，四个核心场景可以直接演示。
 

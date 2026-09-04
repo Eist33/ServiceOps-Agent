@@ -1,5 +1,5 @@
-import OperationsClient from './operations-client';
+import { redirect } from 'next/navigation';
 
 export default function OperationsPage() {
-  return <OperationsClient />;
+  redirect('/staff/operations');
 }

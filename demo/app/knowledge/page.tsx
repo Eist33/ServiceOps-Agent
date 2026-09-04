@@ -1,5 +1,5 @@
-import KnowledgeClient from './knowledge-client';
+import { redirect } from 'next/navigation';
 
 export default function KnowledgePage() {
-  return <KnowledgeClient />;
+  redirect('/staff/knowledge');
 }

@@ -36,6 +36,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
   AGENT_SESSIONS,
   type AgentProfileData,
@@ -316,6 +317,7 @@ export default function AgentWorkbenchClient() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <StaffNavigation active="agent" />
             <RealtimeStatusBadge status={streamStatus} />
             <Select value={sessionToken} onValueChange={switchAgent}>
               <SelectTrigger className="h-8 w-[132px]" aria-label="切换演示坐席">

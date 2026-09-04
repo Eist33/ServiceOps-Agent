@@ -5,8 +5,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bot,
-  BookOpenText,
-  ChartNoAxesCombined,
   Box,
   Check,
   CheckCircle2,
@@ -32,7 +30,7 @@ import {
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -752,20 +750,6 @@ function Header() {
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <a
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          href="/operations"
-        >
-          <ChartNoAxesCombined />
-          <span className="hidden sm:inline">运营看板</span>
-        </a>
-        <a
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-          href="/knowledge"
-        >
-          <BookOpenText />
-          <span className="hidden sm:inline">知识运营</span>
-        </a>
         <Badge
           className="hidden bg-emerald-50 text-emerald-700 sm:inline-flex"
           variant="secondary"
