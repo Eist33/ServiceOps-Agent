@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from serviceops.models import OperationsAlertAcknowledgement, Ticket
+from serviceops.models import ModelInvocation, OperationsAlertAcknowledgement, Ticket
 from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
@@ -56,6 +56,20 @@ def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
     assert dashboard["tickets"]["total"] == 0
     assert dashboard["refunds"]["total"] == 0
     assert dashboard["tools"]["total"] == 0
+    assert dashboard["models"] == {
+        "window_hours": 24,
+        "total": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "fallback": 0,
+        "success_rate": 0.0,
+        "average_duration_ms": 0.0,
+        "p95_duration_ms": 0,
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "total_tokens": 0,
+    }
+    assert dashboard["recent_model_invocations"] == []
     assert dashboard["knowledge"] == {"active": 12, "historical": 0, "versions": 1}
     assert len(dashboard["activity"]) == 7
     assert dashboard["recent_tickets"] == []
@@ -109,6 +123,95 @@ def test_dashboard_aggregates_ticket_handoff_sla_and_tool_health(client):
         "get_shipping_status",
         "get_order",
     ]
+
+
+def test_dashboard_aggregates_recent_model_reliability_and_tokens(client, db):
+    conversation_id = _start_conversation(client)
+    now = datetime.now(UTC)
+    db.add_all(
+        [
+            ModelInvocation(
+                trace_id="model-success-fast",
+                conversation_id=conversation_id,
+                message_id="message-success-fast",
+                provider="deepseek",
+                model_name="deepseek-v4-flash",
+                api_style="responses",
+                status="SUCCEEDED",
+                duration_ms=100,
+                input_tokens=30,
+                output_tokens=20,
+                total_tokens=50,
+                created_at=now - timedelta(minutes=3),
+            ),
+            ModelInvocation(
+                trace_id="model-success-slow",
+                conversation_id=conversation_id,
+                message_id="message-success-slow",
+                provider="deepseek",
+                model_name="deepseek-v4-flash",
+                api_style="responses",
+                status="SUCCEEDED",
+                duration_ms=300,
+                input_tokens=40,
+                output_tokens=30,
+                total_tokens=70,
+                created_at=now - timedelta(minutes=2),
+            ),
+            ModelInvocation(
+                trace_id="model-timeout",
+                conversation_id=conversation_id,
+                message_id="message-timeout",
+                provider="deepseek",
+                model_name="deepseek-v4-flash",
+                api_style="responses",
+                status="FAILED",
+                duration_ms=500,
+                error_type="MODEL_TIMEOUT",
+                fallback_used=True,
+                created_at=now - timedelta(minutes=1),
+            ),
+            ModelInvocation(
+                trace_id="model-old",
+                conversation_id=conversation_id,
+                message_id="message-old",
+                provider="deepseek",
+                model_name="deepseek-v4-flash",
+                api_style="responses",
+                status="FAILED",
+                duration_ms=900,
+                error_type="MODEL_CONNECTION_ERROR",
+                created_at=now - timedelta(hours=25),
+            ),
+        ]
+    )
+    db.commit()
+
+    response = client.get("/api/ops/dashboard", headers=OPS_HEADERS)
+
+    assert response.status_code == 200
+    dashboard = response.json()
+    assert dashboard["models"] == {
+        "window_hours": 24,
+        "total": 3,
+        "succeeded": 2,
+        "failed": 1,
+        "fallback": 1,
+        "success_rate": 66.7,
+        "average_duration_ms": 300.0,
+        "p95_duration_ms": 500,
+        "input_tokens": 70,
+        "output_tokens": 50,
+        "total_tokens": 120,
+    }
+    recent = dashboard["recent_model_invocations"]
+    assert [item["status"] for item in recent] == [
+        "FAILED",
+        "SUCCEEDED",
+        "SUCCEEDED",
+    ]
+    assert recent[0]["error_type"] == "MODEL_TIMEOUT"
+    assert recent[0]["fallback_used"] is True
 
 
 def test_ticket_report_filters_by_support_group_and_sla(client, db):

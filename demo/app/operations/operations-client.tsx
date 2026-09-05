@@ -407,6 +407,42 @@ export default function OperationsClient() {
               <div className="grid gap-6">
                 <Card>
                   <CardHeader>
+                    <CardTitle>模型运行健康度</CardTitle>
+                    <CardDescription>最近 {dashboard.models.window_hours} 小时真实模型调用</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-end justify-between gap-3">
+                      <div>
+                        <p className="text-3xl font-semibold tabular-nums">
+                          {dashboard.models.total ? `${dashboard.models.success_rate}%` : '—'}
+                        </p>
+                        <p className="mt-1 text-xs text-muted-foreground">调用成功率</p>
+                      </div>
+                      <div className="flex flex-wrap justify-end gap-1.5">
+                        <Badge variant="secondary" className="bg-red-50 text-red-700">
+                          失败 {dashboard.models.failed}
+                        </Badge>
+                        <Badge variant="secondary" className="bg-amber-50 text-amber-700">
+                          降级 {dashboard.models.fallback}
+                        </Badge>
+                      </div>
+                    </div>
+                    <Progress value={dashboard.models.success_rate}>
+                      <ProgressLabel>成功调用</ProgressLabel>
+                      <span className="ml-auto text-sm tabular-nums text-muted-foreground">
+                        {dashboard.models.succeeded} / {dashboard.models.total}
+                      </span>
+                    </Progress>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <MiniMetric label="平均耗时" value={`${dashboard.models.average_duration_ms} ms`} />
+                      <MiniMetric label="P95 耗时" value={`${dashboard.models.p95_duration_ms} ms`} />
+                      <MiniMetric label="Token" value={dashboard.models.total_tokens.toLocaleString('zh-CN')} />
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
                     <CardTitle>Agent 工具健康度</CardTitle>
                     <CardDescription>结构化工具调用执行质量</CardDescription>
                   </CardHeader>
@@ -724,6 +760,46 @@ export default function OperationsClient() {
                 )}
               </CardContent>
             </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>最近模型调用</CardTitle>
+                <CardDescription>定位模型超时、限流、连接异常和降级行为</CardDescription>
+              </CardHeader>
+              <CardContent>
+                {dashboard.recent_model_invocations.length ? (
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                    {dashboard.recent_model_invocations.map((invocation) => (
+                      <div className="rounded-xl border bg-[#fbfcfc] p-3" key={invocation.id}>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <span className="flex items-center gap-2 text-xs font-semibold">
+                              <Bot className="size-4 shrink-0 text-primary" />
+                              <span className="truncate">{invocation.model_name}</span>
+                            </span>
+                            <p className="mt-1 text-[11px] uppercase text-muted-foreground">
+                              {invocation.provider}
+                            </p>
+                          </div>
+                          <span className={`mt-1 size-2 shrink-0 rounded-full ${invocation.status === 'SUCCEEDED' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                        </div>
+                        <div className="mt-3 flex justify-between gap-3 text-[11px] text-muted-foreground">
+                          <span className="truncate">
+                            {invocation.status === 'SUCCEEDED'
+                              ? `${invocation.total_tokens.toLocaleString('zh-CN')} Token`
+                              : invocation.error_type ?? '失败'}
+                            {invocation.fallback_used ? ' · 已降级' : ''}
+                          </span>
+                          <span className="shrink-0 tabular-nums">{invocation.duration_ms} ms</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <EmptyState icon={Bot} text="最近 24 小时暂无模型调用记录。" />
+                )}
+              </CardContent>
+            </Card>
           </>
         ) : null}
       </div>
@@ -882,7 +958,7 @@ function MetricCard({
   );
 }
 
-function MiniMetric({ label, value }: { label: string; value: number }) {
+function MiniMetric({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-xl border bg-[#fbfcfc] px-2 py-3">
       <p className="text-lg font-semibold tabular-nums">{value}</p>

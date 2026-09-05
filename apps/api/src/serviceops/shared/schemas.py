@@ -95,6 +95,20 @@ class OpsToolSummary(BaseModel):
     average_duration_ms: float
 
 
+class OpsModelSummary(BaseModel):
+    window_hours: int
+    total: int
+    succeeded: int
+    failed: int
+    fallback: int
+    success_rate: float
+    average_duration_ms: float
+    p95_duration_ms: int
+    input_tokens: int
+    output_tokens: int
+    total_tokens: int
+
+
 class OpsKnowledgeSummary(BaseModel):
     active: int
     historical: int
@@ -106,11 +120,13 @@ class OpsDashboardResponse(BaseModel):
     tickets: OpsTicketSummary
     refunds: OpsRefundSummary
     tools: OpsToolSummary
+    models: OpsModelSummary
     knowledge: OpsKnowledgeSummary
     ticket_types: list[dict[str, Any]]
     activity: list[dict[str, Any]]
     recent_tickets: list[dict[str, Any]]
     recent_tools: list[dict[str, Any]]
+    recent_model_invocations: list[dict[str, Any]]
 
 
 class OpsTicketReportResponse(BaseModel):

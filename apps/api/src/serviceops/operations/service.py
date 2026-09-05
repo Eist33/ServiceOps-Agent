@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from math import ceil
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -10,6 +11,7 @@ from serviceops.models import (
     CustomerSatisfactionFeedback,
     HandoffStatus,
     KnowledgeArticle,
+    ModelInvocation,
     OperationsAlertAcknowledgement,
     Operator,
     Order,
@@ -41,10 +43,18 @@ SLA_FILTERS = {"ON_TRACK", "DUE_SOON", "BREACHED", "COMPLETED", "RISK"}
 ALERT_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
 ALERT_TYPES = {"SLA_BREACHED", "SLA_DUE_SOON", "HANDOFF_QUEUED"}
 QUALITY_FIRST_REPLY_MINUTES = 30
+MODEL_METRICS_WINDOW_HOURS = 24
 
 
 def _aware(value: datetime) -> datetime:
     return value if value.tzinfo else value.replace(tzinfo=UTC)
+
+
+def _nearest_rank_percentile(values: list[int], percentile: float) -> int:
+    if not values:
+        return 0
+    ordered = sorted(values)
+    return ordered[max(0, ceil(percentile * len(ordered)) - 1)]
 
 
 def operations_dashboard(
@@ -60,6 +70,14 @@ def operations_dashboard(
     tools = list(
         db.scalars(select(ToolInvocation).order_by(ToolInvocation.created_at.desc()))
     )
+    model_cutoff = current_time - timedelta(hours=MODEL_METRICS_WINDOW_HOURS)
+    model_invocations = [
+        invocation
+        for invocation in db.scalars(
+            select(ModelInvocation).order_by(ModelInvocation.created_at.desc())
+        )
+        if _aware(invocation.created_at) >= model_cutoff
+    ]
     articles = list(db.scalars(select(KnowledgeArticle)))
 
     sla_by_ticket = {ticket.id: ticket_sla(ticket, now=current_time) for ticket in tickets}
@@ -70,6 +88,10 @@ def operations_dashboard(
     succeeded_tools = sum(tool.status == "SUCCEEDED" for tool in tools)
     failed_tools = len(tools) - succeeded_tools
     average_duration = sum(tool.duration_ms for tool in tools) / len(tools) if tools else 0
+    succeeded_models = sum(
+        invocation.status == "SUCCEEDED" for invocation in model_invocations
+    )
+    model_durations = [invocation.duration_ms for invocation in model_invocations]
     succeeded_refunds = [
         refund for refund in refunds if refund.status == RefundStatus.SUCCEEDED.value
     ]
@@ -126,6 +148,35 @@ def operations_dashboard(
             "success_rate": round(succeeded_tools / len(tools) * 100, 1) if tools else 0,
             "average_duration_ms": round(average_duration, 1),
         },
+        models={
+            "window_hours": MODEL_METRICS_WINDOW_HOURS,
+            "total": len(model_invocations),
+            "succeeded": succeeded_models,
+            "failed": len(model_invocations) - succeeded_models,
+            "fallback": sum(
+                invocation.fallback_used for invocation in model_invocations
+            ),
+            "success_rate": (
+                round(succeeded_models / len(model_invocations) * 100, 1)
+                if model_invocations
+                else 0
+            ),
+            "average_duration_ms": (
+                round(sum(model_durations) / len(model_durations), 1)
+                if model_durations
+                else 0
+            ),
+            "p95_duration_ms": _nearest_rank_percentile(model_durations, 0.95),
+            "input_tokens": sum(
+                invocation.input_tokens for invocation in model_invocations
+            ),
+            "output_tokens": sum(
+                invocation.output_tokens for invocation in model_invocations
+            ),
+            "total_tokens": sum(
+                invocation.total_tokens for invocation in model_invocations
+            ),
+        },
         knowledge={
             "active": sum(article.active for article in articles),
             "historical": sum(not article.active for article in articles),
@@ -166,6 +217,20 @@ def operations_dashboard(
                 "created_at": _aware(tool.created_at).isoformat(),
             }
             for tool in tools[:8]
+        ],
+        recent_model_invocations=[
+            {
+                "id": invocation.id,
+                "provider": invocation.provider,
+                "model_name": invocation.model_name,
+                "status": invocation.status,
+                "duration_ms": invocation.duration_ms,
+                "total_tokens": invocation.total_tokens,
+                "error_type": invocation.error_type,
+                "fallback_used": invocation.fallback_used,
+                "created_at": _aware(invocation.created_at).isoformat(),
+            }
+            for invocation in model_invocations[:8]
         ],
     )
 

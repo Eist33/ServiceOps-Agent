@@ -177,6 +177,19 @@ export type OperationsDashboardData = {
     success_rate: number;
     average_duration_ms: number;
   };
+  models: {
+    window_hours: number;
+    total: number;
+    succeeded: number;
+    failed: number;
+    fallback: number;
+    success_rate: number;
+    average_duration_ms: number;
+    p95_duration_ms: number;
+    input_tokens: number;
+    output_tokens: number;
+    total_tokens: number;
+  };
   knowledge: { active: number; historical: number; versions: number };
   ticket_types: Array<{ type: string; label: string; count: number }>;
   activity: Array<{
@@ -205,6 +218,17 @@ export type OperationsDashboardData = {
     status: string;
     duration_ms: number;
     error_type?: string;
+    created_at: string;
+  }>;
+  recent_model_invocations: Array<{
+    id: string;
+    provider: string;
+    model_name: string;
+    status: string;
+    duration_ms: number;
+    total_tokens: number;
+    error_type?: string;
+    fallback_used: boolean;
     created_at: string;
   }>;
 };
