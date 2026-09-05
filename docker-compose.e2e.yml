@@ -22,6 +22,8 @@ services:
       AGENT_MODE: deterministic
       DEMO_MODE_ENABLED: "true"
       API_DOCS_ENABLED: "true"
+      DEMO_LOGIN_PASSWORD: serviceops
+      AUTH_SESSION_HOURS: "12"
       SENSITIVE_TRACING_ENABLED: "false"
     depends_on:
       postgres:

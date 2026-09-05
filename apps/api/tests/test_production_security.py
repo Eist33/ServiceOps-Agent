@@ -69,6 +69,10 @@ def test_production_app_omits_demo_seed_reset_and_api_docs(monkeypatch) -> None:
 
     assert app.openapi_url is None
     assert all(route.path != "/api/demo/reset" for route in app.routes)
+    assert all(
+        route.path not in {"/api/auth/development-accounts", "/api/auth/login"}
+        for route in app.routes
+    )
 
     with TestClient(app) as client:
         health = client.get("/health")
@@ -81,4 +85,4 @@ def test_production_app_omits_demo_seed_reset_and_api_docs(monkeypatch) -> None:
     assert health.headers["x-frame-options"] == "DENY"
     assert health.headers["strict-transport-security"].startswith("max-age=31536000")
     assert me.status_code == 403
-    assert me.json()["error"]["message"] == "当前环境未启用演示身份认证"
+    assert me.json()["error"]["message"] == "当前环境未启用开发身份认证"

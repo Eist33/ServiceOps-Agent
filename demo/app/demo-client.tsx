@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { useAuth } from '@/components/auth-provider';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -98,7 +99,6 @@ type TimelineItem =
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'notice'; text: string };
 
-const STORAGE_KEY = 'harbor-support-conversation';
 const suggestedPrompts = [
   {
     label: '收到后几天能退？',
@@ -152,6 +152,9 @@ function toolSummary(result?: Record<string, unknown>) {
 }
 
 export default function DemoClient() {
+  const { customer, logout } = useAuth();
+  const customerName = customer?.principal.display_name ?? '当前客户';
+  const storageKey = `harbor-support-conversation:${customer?.principal.principal_id ?? 'unknown'}`;
   const [conversationId, setConversationId] = useState('');
   const [items, setItems] = useState<TimelineItem[]>([welcome]);
   const [state, setState] = useState<ConversationState | null>(null);
@@ -177,19 +180,19 @@ export default function DemoClient() {
 
   const startFreshConversation = useCallback(async () => {
     const created = await createConversation();
-    localStorage.setItem(STORAGE_KEY, created.id);
+    localStorage.setItem(storageKey, created.id);
     setConversationId(created.id);
     setItems([{ ...welcome, id: `welcome-${created.id}` }]);
     setState(null);
     setOrder(null);
     setShipping(null);
     return created.id;
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     async function initialize() {
       try {
-        const saved = localStorage.getItem(STORAGE_KEY);
+        const saved = localStorage.getItem(storageKey);
         if (saved) {
           try {
             const persisted = await loadConversation(saved);
@@ -225,7 +228,7 @@ export default function DemoClient() {
       }
     }
     void initialize();
-  }, [startFreshConversation]);
+  }, [startFreshConversation, storageKey]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -677,7 +680,7 @@ export default function DemoClient() {
   ]);
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <Header />
+      <Header customerName={customerName} onLogout={() => logout('customer')} />
       <div className="mx-auto grid min-h-[calc(100vh-4rem)] max-w-[1440px] grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
         <section className="flex h-[calc(100vh-4rem)] min-w-0 flex-col bg-[#fbfcfc]">
           <div className="flex items-center justify-between border-b border-border/70 bg-white px-4 py-3.5 sm:px-6">
@@ -689,7 +692,7 @@ export default function DemoClient() {
                   <span className="size-1.5 rounded-full bg-emerald-500" />
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  演示客户 林沐 · 直接描述问题即可
+                  {customerName} · 直接描述问题即可
                 </p>
               </div>
             </div>
@@ -811,7 +814,13 @@ export default function DemoClient() {
   );
 }
 
-function Header() {
+function Header({
+  customerName,
+  onLogout,
+}: {
+  customerName: string;
+  onLogout: () => Promise<void>;
+}) {
   return (
     <header className="flex h-16 items-center justify-between border-b bg-white px-4 lg:px-6">
       <div className="flex items-center gap-3">
@@ -834,8 +843,13 @@ function Header() {
           与审计已连接
         </Badge>
         <Avatar className="size-8">
-          <AvatarFallback className="text-xs font-semibold">林</AvatarFallback>
+          <AvatarFallback className="text-xs font-semibold">
+            {customerName.slice(0, 1)}
+          </AvatarFallback>
         </Avatar>
+        <Button onClick={() => void onLogout()} size="sm" variant="outline">
+          退出登录
+        </Button>
       </div>
     </header>
   );

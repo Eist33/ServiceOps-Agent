@@ -27,6 +27,8 @@ class Settings(BaseSettings):
     model_max_turns: int = 8
     demo_mode_enabled: bool = True
     api_docs_enabled: bool = True
+    demo_login_password: str = "serviceops"
+    auth_session_hours: int = 12
     # Legacy OpenAI-specific settings remain supported during migration.
     openai_model: str = "gpt-5.4-mini"
     openai_api_key: str | None = None

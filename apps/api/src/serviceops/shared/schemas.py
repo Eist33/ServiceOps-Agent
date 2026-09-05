@@ -31,6 +31,34 @@ class AgentEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class DevelopmentAccountResponse(BaseModel):
+    login_name: str
+    display_name: str
+    principal_type: str
+    role: str
+
+
+class AuthLoginRequest(BaseModel):
+    login_name: str = Field(min_length=2, max_length=80)
+    password: str = Field(min_length=1, max_length=200)
+
+
+class AuthPrincipalResponse(BaseModel):
+    account_id: str
+    provider: str
+    principal_type: str
+    principal_id: str
+    display_name: str
+    role: str
+
+
+class AuthLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    principal: AuthPrincipalResponse
+
+
 class ConversationCreateResponse(BaseModel):
     id: str
     customer_name: str

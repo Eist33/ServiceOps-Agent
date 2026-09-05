@@ -22,9 +22,16 @@ from serviceops.conversations.service import (
 from serviceops.database import Base, engine, get_db
 from serviceops.feedback.service import submit_customer_feedback
 from serviceops.identity.service import (
+    AuthenticatedPrincipal,
+    current_authenticated_principal,
     current_customer,
+    current_knowledge_manager,
+    current_operations_operator,
     current_operator,
     current_support_agent,
+    list_development_accounts,
+    login_development_account,
+    revoke_auth_session,
 )
 from serviceops.knowledge.management import (
     deactivate_knowledge_article,
@@ -50,9 +57,13 @@ from serviceops.shared.schemas import (
     AgentTicketNoteRequest,
     AgentTicketResolveRequest,
     AgentTicketResponse,
+    AuthLoginRequest,
+    AuthLoginResponse,
+    AuthPrincipalResponse,
     ConversationCreateResponse,
     CustomerFeedbackRequest,
     CustomerFeedbackResponse,
+    DevelopmentAccountResponse,
     KnowledgeArticleResponse,
     KnowledgePublishRequest,
     MessageRequest,
@@ -116,6 +127,7 @@ def create_app() -> FastAPI:
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=[
             "Content-Type",
+            "Authorization",
             "Idempotency-Key",
             "X-Agent-Session",
             "X-Demo-Session",
@@ -198,6 +210,61 @@ def create_app() -> FastAPI:
     def health(db: Session = Depends(get_db)):
         db.execute(text("SELECT 1"))
         return {"status": "ok", "service": "api"}
+
+    def principal_response(
+        principal: AuthenticatedPrincipal,
+    ) -> AuthPrincipalResponse:
+        return AuthPrincipalResponse(
+            account_id=principal.account_id,
+            provider=principal.provider,
+            principal_type=principal.principal_type,
+            principal_id=principal.principal_id,
+            display_name=principal.display_name,
+            role=principal.role,
+        )
+
+    if settings.demo_mode_enabled:
+
+        @app.get(
+            "/api/auth/development-accounts",
+            response_model=list[DevelopmentAccountResponse],
+        )
+        def development_account_index(db: Session = Depends(get_db)):
+            return [
+                DevelopmentAccountResponse(
+                    login_name=account.login_name or "",
+                    display_name=account.display_name,
+                    principal_type=account.principal_type,
+                    role=account.role,
+                )
+                for account in list_development_accounts(db)
+            ]
+
+        @app.post("/api/auth/login", response_model=AuthLoginResponse)
+        def auth_login(body: AuthLoginRequest, db: Session = Depends(get_db)):
+            token, expires_at, principal = login_development_account(
+                db, body.login_name, body.password, settings
+            )
+            return AuthLoginResponse(
+                access_token=token,
+                expires_at=expires_at,
+                principal=principal_response(principal),
+            )
+
+    @app.get("/api/auth/me", response_model=AuthPrincipalResponse)
+    def auth_me(
+        principal: AuthenticatedPrincipal = Depends(current_authenticated_principal),
+    ):
+        return principal_response(principal)
+
+    @app.post("/api/auth/logout")
+    def auth_logout(
+        authorization: str | None = Header(default=None, alias="Authorization"),
+        db: Session = Depends(get_db),
+        _principal: AuthenticatedPrincipal = Depends(current_authenticated_principal),
+    ):
+        revoke_auth_session(db, authorization)
+        return {"status": "logged_out"}
 
     @app.get("/api/me")
     def me(customer: Customer = Depends(current_customer)):
@@ -282,14 +349,14 @@ def create_app() -> FastAPI:
     @app.get("/api/ops/knowledge", response_model=list[KnowledgeArticleResponse])
     def knowledge_index(
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_knowledge_manager),
     ):
         return list_knowledge_articles(db)
 
     @app.get("/api/ops/dashboard", response_model=OpsDashboardResponse)
     def ops_dashboard(
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_dashboard(db)
 
@@ -298,7 +365,7 @@ def create_app() -> FastAPI:
         support_group: str | None = None,
         sla_status: str | None = None,
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_ticket_report(
             db,
@@ -309,21 +376,21 @@ def create_app() -> FastAPI:
     @app.get("/api/ops/quality-reviews", response_model=OpsQualityReportResponse)
     def ops_quality_reviews(
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_quality_report(db)
 
     @app.get("/api/ops/alerts", response_model=OpsAlertSnapshotResponse)
     def ops_alert_index(
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_alerts(db)
 
     @app.get("/api/ops/alerts/stream")
     def ops_alert_stream(
         once: bool = False,
-        operator: Operator = Depends(current_operator),
+        operator: Operator = Depends(current_operations_operator),
     ):
         return StreamingResponse(
             stream_operations_alerts(operator.id, once=once),
@@ -342,7 +409,7 @@ def create_app() -> FastAPI:
         ticket_id: str,
         alert_type: str,
         db: Session = Depends(get_db),
-        operator: Operator = Depends(current_operator),
+        operator: Operator = Depends(current_operations_operator),
     ):
         return acknowledge_operations_alert(db, operator, ticket_id, alert_type)
 
@@ -350,7 +417,7 @@ def create_app() -> FastAPI:
     def publish_knowledge(
         body: KnowledgePublishRequest,
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_knowledge_manager),
     ):
         return publish_knowledge_article(db, body)
 
@@ -361,7 +428,7 @@ def create_app() -> FastAPI:
     def deactivate_knowledge(
         article_id: str,
         db: Session = Depends(get_db),
-        _operator: Operator = Depends(current_operator),
+        _operator: Operator = Depends(current_knowledge_manager),
     ):
         return deactivate_knowledge_article(db, article_id)
 

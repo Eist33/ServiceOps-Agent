@@ -88,6 +88,41 @@ class Operator(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class IdentityAccount(Base):
+    __tablename__ = "identity_accounts"
+    __table_args__ = (
+        UniqueConstraint("provider", "subject", name="uq_identity_provider_subject"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    provider: Mapped[str] = mapped_column(String(40), index=True)
+    subject: Mapped[str] = mapped_column(String(160))
+    login_name: Mapped[str | None] = mapped_column(
+        String(80), nullable=True, unique=True, index=True
+    )
+    principal_type: Mapped[str] = mapped_column(String(20), index=True)
+    principal_id: Mapped[str] = mapped_column(String(36), index=True)
+    display_name: Mapped[str] = mapped_column(String(80))
+    role: Mapped[str] = mapped_column(String(40))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AuthSession(Base):
+    __tablename__ = "auth_sessions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    identity_account_id: Mapped[str] = mapped_column(
+        ForeignKey("identity_accounts.id"), index=True
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Order(Base):
     __tablename__ = "orders"
 

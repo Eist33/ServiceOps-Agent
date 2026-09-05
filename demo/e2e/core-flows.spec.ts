@@ -7,6 +7,37 @@ async function sendNaturalLanguage(page: Page, content: string) {
   await page.getByRole('button', { name: '发送消息' }).click();
 }
 
+async function loginCustomer(page: Page, name = '林沐') {
+  await expect(page.getByRole('heading', { name: '登录客户服务' })).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(name) }).click();
+  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByRole('button', { name: '登录客户服务' }).click();
+}
+
+async function selectCustomerConversation(page: Page, conversationId: string) {
+  await page.evaluate((selectedConversationId) => {
+    const rawSession = sessionStorage.getItem('harbor-support-customer-auth');
+    if (!rawSession) throw new Error('Customer authentication session is missing');
+    const session = JSON.parse(rawSession) as {
+      principal: { principal_id: string };
+    };
+    localStorage.setItem(
+      `harbor-support-conversation:${session.principal.principal_id}`,
+      selectedConversationId,
+    );
+  }, conversationId);
+}
+
+async function loginStaff(page: Page, name: '沈清禾' | '陆川' | '许知夏', route: string) {
+  await page.goto(route);
+  await page.evaluate(() => sessionStorage.removeItem('harbor-support-staff-auth'));
+  await page.reload();
+  await expect(page.getByRole('heading', { name: '登录客服后台' })).toBeVisible();
+  await page.getByRole('button', { name: new RegExp(name) }).click();
+  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByRole('button', { name: '登录客服后台' }).click();
+}
+
 test.beforeEach(async ({ page, request }) => {
   await request.post(`${API_BASE_URL}/api/demo/reset`, {
     headers: { 'X-Demo-Session': 'demo-linmu-session' },
@@ -32,6 +63,7 @@ test.beforeEach(async ({ page, request }) => {
     });
   });
   await page.goto('/');
+  await loginCustomer(page);
   await expect(
     page.getByRole('heading', { name: '售后服务助手', exact: true }),
   ).toBeVisible();
@@ -128,7 +160,7 @@ test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
   await expect(page.getByRole('button', { name: '转人工处理' })).toBeEnabled();
 });
 
-test('人工坐席可受理、记录并解决工单', async ({ page, request }) => {
+test('人工坐席可受理、记录并解决工单', async ({ page, request, context }) => {
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
   const conversationResponse = await request.post(
     `${API_BASE_URL}/api/conversations`,
@@ -148,30 +180,25 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
     },
   );
   const ticket = await ticketResponse.json();
-  await page.evaluate(
-    ({ conversationId }) =>
-      localStorage.setItem('harbor-support-conversation', conversationId),
-    { conversationId: conversation.id },
-  );
+  await selectCustomerConversation(page, conversation.id);
   await request.post(
     `${API_BASE_URL}/api/tickets/${ticket.id}/handoff`,
     { headers: customerHeaders },
   );
 
-  await page.goto('/staff/agent');
+  await loginStaff(page, '沈清禾', '/staff/agent');
   await expect(page.getByRole('heading', { name: '人工工单队列' })).toBeVisible();
   await expect(page.getByText(ticket.ticket_number).first()).toBeVisible();
   await page.getByRole('button', { name: '受理此工单' }).click();
   await expect(page.getByText(/已受理工单/)).toBeVisible();
   await expect(page.getByText('沈清禾').first()).toBeVisible();
 
-  await page.getByLabel('切换演示坐席').click();
-  await page.getByRole('option', { name: '陆川' }).click();
-  await expect(page.getByText('已由 沈清禾 受理')).toBeVisible();
-  await expect(page.getByLabel('处理记录或解决说明')).toBeHidden();
+  const otherAgentPage = await context.newPage();
+  await loginStaff(otherAgentPage, '陆川', '/staff/agent');
+  await expect(otherAgentPage.getByText('已由 沈清禾 受理')).toBeVisible();
+  await expect(otherAgentPage.getByLabel('处理记录或解决说明')).toBeHidden();
+  await otherAgentPage.close();
 
-  await page.getByLabel('切换演示坐席').click();
-  await page.getByRole('option', { name: '沈清禾' }).click();
   await expect(page.getByText('由我处理')).toBeVisible();
 
   await page.getByLabel('回复客户').fill('已联系承运商，正在核查转运进度。');
@@ -253,7 +280,7 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
   await expect(page.getByText('感谢你的评价')).toBeVisible();
   await expect(page.getByText('已提交 5 星评价')).toBeVisible();
 
-  await page.goto('/staff/operations');
+  await loginStaff(page, '许知夏', '/staff/operations');
   await expect(page.getByText('人工工单自动质检', { exact: true })).toBeVisible();
   await expect(page.getByText('已质检 1')).toBeVisible();
   await expect(page.getByText('平均 100 分')).toBeVisible();
@@ -267,7 +294,7 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
 test('人工坐席无需刷新即可接收新工单', async ({ page, request }) => {
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
 
-  await page.goto('/staff/agent');
+  await loginStaff(page, '沈清禾', '/staff/agent');
   await expect(page.getByLabel('实时队列状态')).toContainText('实时已连接');
   await expect(page.getByText('当前筛选下没有工单。')).toBeVisible();
 
@@ -328,17 +355,13 @@ test('客户与受理坐席可双向同步工单消息', async ({ page, request,
     { headers: customerHeaders },
   );
 
-  await page.evaluate(
-    ({ conversationId }) =>
-      localStorage.setItem('harbor-support-conversation', conversationId),
-    { conversationId: conversation.id },
-  );
+  await selectCustomerConversation(page, conversation.id);
   await page.reload();
   await expect(page.getByText(ticket.ticket_number).last()).toBeVisible();
   await page.getByRole('button', { name: '查看工单详情' }).click();
 
   const agentPage = await context.newPage();
-  await agentPage.goto('/staff/agent');
+  await loginStaff(agentPage, '沈清禾', '/staff/agent');
   await expect(agentPage.getByText(ticket.ticket_number).first()).toBeVisible();
   await agentPage.getByRole('button', { name: '受理此工单' }).click();
   await expect(agentPage.getByLabel('回复客户')).toBeVisible();
@@ -377,7 +400,7 @@ test('退款必须明确确认后才执行', async ({ page }) => {
 });
 
 test('运营人员发布知识新版本并替换当前条款', async ({ page }) => {
-  await page.goto('/staff/knowledge');
+  await loginStaff(page, '许知夏', '/staff/knowledge');
   await expect(page.getByRole('heading', { name: '知识条款与版本' })).toBeVisible();
   await expect(page.getByText('12').first()).toBeVisible();
 
@@ -400,8 +423,15 @@ test('客户入口不展示后台导航且客服后台内部可稳定跳转', as
   await expect(page.getByRole('link', { name: '知识运营' })).toHaveCount(0);
   await expect(page.getByRole('link', { name: '运营看板' })).toHaveCount(0);
 
-  await page.goto('/staff/agent');
+  await loginStaff(page, '沈清禾', '/staff/agent');
   await expect(page.getByRole('navigation', { name: '客服后台导航' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '客服工作台' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '知识运营' })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: '运营看板' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '退出客服后台' }).click();
+  await loginStaff(page, '许知夏', '/staff/knowledge');
+  await expect(page.getByRole('link', { name: '客服工作台' })).toHaveCount(0);
   await page.getByRole('link', { name: '知识运营' }).click();
   await expect(page).toHaveURL(/\/staff\/knowledge$/);
   await expect(page.getByRole('heading', { name: '知识条款与版本' })).toBeVisible();
@@ -410,9 +440,7 @@ test('客户入口不展示后台导航且客服后台内部可稳定跳转', as
   await expect(page).toHaveURL(/\/staff\/operations$/);
   await expect(page.getByRole('heading', { name: '运营质量总览' })).toBeVisible();
 
-  await page.getByRole('link', { name: '客服工作台' }).click();
-  await expect(page).toHaveURL(/\/staff\/agent$/);
-  await expect(page.getByRole('heading', { name: '人工工单队列' })).toBeVisible();
+  await expect(page.getByRole('link', { name: '客服工作台' })).toHaveCount(0);
 });
 
 test('旧后台地址兼容跳转到新的 staff 路由', async ({ page }) => {
@@ -435,7 +463,7 @@ test('运营看板汇总真实工单、人工接管与工具质量', async ({ pa
   await page.getByRole('button', { name: '转人工处理' }).click();
   await expect(page.getByText('人工接管已建立')).toBeVisible();
 
-  await page.goto('/staff/operations');
+  await loginStaff(page, '许知夏', '/staff/operations');
   await expect(page.getByRole('heading', { name: '运营质量总览' })).toBeVisible();
   await expect(page.getByLabel('活动工单').getByText('1', { exact: true })).toBeVisible();
   await expect(page.getByLabel('人工接管').getByText('1', { exact: true })).toBeVisible();
@@ -465,7 +493,7 @@ test('运营人员可筛选处理组与 SLA 并导出当前工单', async ({ pag
 
   const shipping = await createTicket('SHIPPING', '物流停滞');
   const other = await createTicket('OTHER', '其他售后问题');
-  await page.goto('/staff/operations');
+  await loginStaff(page, '许知夏', '/staff/operations');
   await expect(page.getByText(shipping.ticket_number)).toBeVisible();
   await expect(page.getByText(other.ticket_number)).toBeVisible();
 
@@ -497,7 +525,7 @@ test('运营人员可筛选处理组与 SLA 并导出当前工单', async ({ pag
 
 test('运营看板无需刷新即可接收并关闭主动告警', async ({ page, request }) => {
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
-  await page.goto('/staff/operations');
+  await loginStaff(page, '许知夏', '/staff/operations');
   await expect(page.getByLabel('实时告警状态')).toContainText('实时已连接');
   await expect(page.getByText('当前没有需要运营介入的主动告警。')).toBeVisible();
 

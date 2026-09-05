@@ -16,6 +16,11 @@ class ForbiddenError(DomainError):
         super().__init__("FORBIDDEN", message, 403)
 
 
+class UnauthorizedError(DomainError):
+    def __init__(self, message: str = "身份认证失败"):
+        super().__init__("UNAUTHORIZED", message, 401)
+
+
 class ConflictError(DomainError):
     def __init__(self, code: str, message: str):
         super().__init__(code, message, 409)

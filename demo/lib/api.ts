@@ -1,11 +1,14 @@
+import { bearerHeaders, type AuthSessionData } from './auth-session';
+
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-export const DEMO_SESSION = 'demo-linmu-session';
-export const OPS_SESSION = 'demo-knowledge-ops-session';
-export const AGENT_SESSIONS = [
-  { token: 'demo-support-agent-session', name: '沈清禾' },
-  { token: 'demo-support-agent-luchuan-session', name: '陆川' },
-] as const;
+
+export type DevelopmentAccountData = {
+  login_name: string;
+  display_name: string;
+  principal_type: 'CUSTOMER' | 'OPERATOR';
+  role: string;
+};
 
 export type AgentEvent = {
   type:
@@ -376,7 +379,9 @@ export type AgentQueueEvent =
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  headers.set('X-Demo-Session', DEMO_SESSION);
+  for (const [name, value] of Object.entries(bearerHeaders('customer'))) {
+    headers.set(name, value);
+  }
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers,
@@ -393,7 +398,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 async function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  headers.set('X-Ops-Session', OPS_SESSION);
+  for (const [name, value] of Object.entries(bearerHeaders('staff'))) {
+    headers.set(name, value);
+  }
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -406,12 +413,13 @@ async function opsRequest<T>(path: string, init?: RequestInit): Promise<T> {
 
 async function agentRequest<T>(
   path: string,
-  sessionToken: string,
   init?: RequestInit,
 ): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Content-Type', 'application/json');
-  headers.set('X-Agent-Session', sessionToken);
+  for (const [name, value] of Object.entries(bearerHeaders('staff'))) {
+    headers.set(name, value);
+  }
   const response = await fetch(`${API_URL}${path}`, { ...init, headers });
   if (!response.ok) {
     const body = (await response.json().catch(() => null)) as {
@@ -420,6 +428,40 @@ async function agentRequest<T>(
     throw new Error(body?.error?.message ?? `请求失败（${response.status}）`);
   }
   return response.json() as Promise<T>;
+}
+
+export async function listDevelopmentAccounts() {
+  const response = await fetch(`${API_URL}/api/auth/development-accounts`);
+  if (!response.ok) throw new Error('开发账号服务不可用');
+  return response.json() as Promise<DevelopmentAccountData[]>;
+}
+
+export async function loginDevelopmentAccount(
+  loginName: string,
+  password: string,
+) {
+  const response = await fetch(`${API_URL}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ login_name: loginName, password }),
+  });
+  if (!response.ok) {
+    const body = (await response.json().catch(() => null)) as {
+      error?: { message?: string };
+    } | null;
+    throw new Error(body?.error?.message ?? '登录失败');
+  }
+  return response.json() as Promise<AuthSessionData>;
+}
+
+export async function logoutAuthSession(accessToken: string) {
+  const response = await fetch(`${API_URL}/api/auth/logout`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (!response.ok && response.status !== 401) {
+    throw new Error('退出登录失败');
+  }
 }
 
 export const createConversation = () =>
@@ -458,7 +500,7 @@ export async function sendMessage(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Demo-Session': DEMO_SESSION,
+        ...bearerHeaders('customer'),
       },
       body: JSON.stringify({ content }),
     },
@@ -581,7 +623,7 @@ export async function streamOperationsAlerts(
   signal: AbortSignal,
 ) {
   const response = await fetch(`${API_URL}/api/ops/alerts/stream`, {
-    headers: { 'X-Ops-Session': OPS_SESSION },
+    headers: bearerHeaders('staff'),
     signal,
   });
   if (!response.ok || !response.body) {
@@ -613,19 +655,18 @@ export const acknowledgeOperationsAlert = (ticketId: string, alertType: string) 
     { method: 'POST' },
   );
 
-export const getAgentProfile = (sessionToken: string) =>
-  agentRequest<AgentProfileData>('/api/agent/me', sessionToken);
+export const getAgentProfile = () =>
+  agentRequest<AgentProfileData>('/api/agent/me');
 
-export const listAgentTickets = (sessionToken: string) =>
-  agentRequest<AgentTicketData[]>('/api/agent/tickets', sessionToken);
+export const listAgentTickets = () =>
+  agentRequest<AgentTicketData[]>('/api/agent/tickets');
 
 export async function streamAgentTickets(
-  sessionToken: string,
   onEvent: (event: AgentQueueEvent) => void,
   signal: AbortSignal,
 ) {
   const response = await fetch(`${API_URL}/api/agent/tickets/stream`, {
-    headers: { 'X-Agent-Session': sessionToken },
+    headers: bearerHeaders('staff'),
     signal,
   });
   if (!response.ok || !response.body) {
@@ -651,21 +692,18 @@ export async function streamAgentTickets(
   if (buffer.trim()) onEvent(JSON.parse(buffer) as AgentQueueEvent);
 }
 
-export const acceptAgentTicket = (sessionToken: string, ticketId: string) =>
+export const acceptAgentTicket = (ticketId: string) =>
   agentRequest<AgentTicketData>(
     `/api/agent/tickets/${ticketId}/accept`,
-    sessionToken,
     { method: 'POST' },
   );
 
 export const addAgentTicketNote = (
-  sessionToken: string,
   ticketId: string,
   content: string,
 ) =>
   agentRequest<AgentTicketData>(
     `/api/agent/tickets/${ticketId}/notes`,
-    sessionToken,
     {
       method: 'POST',
       body: JSON.stringify({ content }),
@@ -673,13 +711,11 @@ export const addAgentTicketNote = (
   );
 
 export const sendAgentTicketMessage = (
-  sessionToken: string,
   ticketId: string,
   content: string,
 ) =>
   agentRequest<AgentTicketData>(
     `/api/agent/tickets/${ticketId}/messages`,
-    sessionToken,
     {
       method: 'POST',
       body: JSON.stringify({ content }),
@@ -687,13 +723,11 @@ export const sendAgentTicketMessage = (
   );
 
 export const resolveAgentTicket = (
-  sessionToken: string,
   ticketId: string,
   resolution: string,
 ) =>
   agentRequest<AgentTicketData>(
     `/api/agent/tickets/${ticketId}/resolve`,
-    sessionToken,
     {
       method: 'POST',
       body: JSON.stringify({ resolution }),

@@ -10,6 +10,7 @@ from serviceops.models import (
     Customer,
     CustomerSatisfactionFeedback,
     IdempotencyRecord,
+    IdentityAccount,
     KnowledgeArticle,
     Message,
     ModelInvocation,
@@ -87,35 +88,32 @@ def _add_seed_knowledge(db: Session) -> None:
 def seed_database(db: Session) -> None:
     operator = db.scalar(select(Operator).where(Operator.session_token == OPS_SESSION_TOKEN))
     if not operator:
-        db.add(
-            Operator(
-                name="许知夏",
-                role="KNOWLEDGE_MANAGER",
-                session_token=OPS_SESSION_TOKEN,
-            )
+        operator = Operator(
+            name="许知夏",
+            role="KNOWLEDGE_MANAGER",
+            session_token=OPS_SESSION_TOKEN,
         )
+        db.add(operator)
     support_agent = db.scalar(
         select(Operator).where(Operator.session_token == AGENT_SESSION_TOKEN)
     )
     if not support_agent:
-        db.add(
-            Operator(
-                name="沈清禾",
-                role="SUPPORT_AGENT",
-                session_token=AGENT_SESSION_TOKEN,
-            )
+        support_agent = Operator(
+            name="沈清禾",
+            role="SUPPORT_AGENT",
+            session_token=AGENT_SESSION_TOKEN,
         )
+        db.add(support_agent)
     second_support_agent = db.scalar(
         select(Operator).where(Operator.session_token == SECOND_AGENT_SESSION_TOKEN)
     )
     if not second_support_agent:
-        db.add(
-            Operator(
-                name="陆川",
-                role="SUPPORT_AGENT",
-                session_token=SECOND_AGENT_SESSION_TOKEN,
-            )
+        second_support_agent = Operator(
+            name="陆川",
+            role="SUPPORT_AGENT",
+            session_token=SECOND_AGENT_SESSION_TOKEN,
         )
+        db.add(second_support_agent)
     existing = db.scalar(select(Customer).where(Customer.session_token == DEMO_SESSION_TOKEN))
     customer = existing or Customer(name="林沐", session_token=DEMO_SESSION_TOKEN)
     other = db.scalar(
@@ -123,7 +121,62 @@ def seed_database(db: Session) -> None:
     ) or Customer(name="周远", session_token=SECONDARY_SESSION_TOKEN)
     if customer.id is None or other.id is None:
         db.add_all([customer, other])
-        db.flush()
+    db.flush()
+
+    development_accounts = [
+        ("linmu", "customer:linmu", "CUSTOMER", customer.id, customer.name, "CUSTOMER"),
+        (
+            "zhouyuan",
+            "customer:zhouyuan",
+            "CUSTOMER",
+            other.id,
+            other.name,
+            "CUSTOMER",
+        ),
+        (
+            "shenqinghe",
+            "operator:shenqinghe",
+            "OPERATOR",
+            support_agent.id,
+            support_agent.name,
+            support_agent.role,
+        ),
+        (
+            "luchuan",
+            "operator:luchuan",
+            "OPERATOR",
+            second_support_agent.id,
+            second_support_agent.name,
+            second_support_agent.role,
+        ),
+        (
+            "xuzhixia",
+            "operator:xuzhixia",
+            "OPERATOR",
+            operator.id,
+            operator.name,
+            operator.role,
+        ),
+    ]
+    for login_name, subject, principal_type, principal_id, display_name, role in development_accounts:
+        identity = db.scalar(
+            select(IdentityAccount).where(
+                IdentityAccount.provider == "DEVELOPMENT",
+                IdentityAccount.subject == subject,
+            )
+        )
+        if identity is None:
+            db.add(
+                IdentityAccount(
+                    provider="DEVELOPMENT",
+                    subject=subject,
+                    login_name=login_name,
+                    principal_type=principal_type,
+                    principal_id=principal_id,
+                    display_name=display_name,
+                    role=role,
+                )
+            )
 
     order_fixtures = [
         {

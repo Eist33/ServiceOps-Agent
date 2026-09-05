@@ -28,17 +28,9 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
-  AGENT_SESSIONS,
   type AgentProfileData,
   type AgentTicketData,
   acceptAgentTicket,
@@ -61,9 +53,6 @@ const filterLabels: Array<{ id: QueueFilter; label: string }> = [
 ];
 
 export default function AgentWorkbenchClient() {
-  const [sessionToken, setSessionToken] = useState<string>(
-    AGENT_SESSIONS[0].token,
-  );
   const [profile, setProfile] = useState<AgentProfileData | null>(null);
   const [tickets, setTickets] = useState<AgentTicketData[]>([]);
   const [selectedId, setSelectedId] = useState('');
@@ -76,13 +65,13 @@ export default function AgentWorkbenchClient() {
   const [notice, setNotice] = useState('');
   const [streamStatus, setStreamStatus] = useState<StreamStatus>('CONNECTING');
 
-  async function load(targetSession = sessionToken) {
+  async function load() {
     setLoading(true);
     setError('');
     try {
       const [nextProfile, nextTickets] = await Promise.all([
-        getAgentProfile(targetSession),
-        listAgentTickets(targetSession),
+        getAgentProfile(),
+        listAgentTickets(),
       ]);
       setProfile(nextProfile);
       setTickets(nextTickets);
@@ -103,8 +92,8 @@ export default function AgentWorkbenchClient() {
     async function initialize() {
       try {
         const [nextProfile, nextTickets] = await Promise.all([
-          getAgentProfile(AGENT_SESSIONS[0].token),
-          listAgentTickets(AGENT_SESSIONS[0].token),
+          getAgentProfile(),
+          listAgentTickets(),
         ]);
         if (cancelled) return;
         setProfile(nextProfile);
@@ -143,7 +132,6 @@ export default function AgentWorkbenchClient() {
       controller = new AbortController();
       try {
         await streamAgentTickets(
-          sessionToken,
           (event) => {
             if (stopped) return;
             setStreamStatus('LIVE');
@@ -176,7 +164,7 @@ export default function AgentWorkbenchClient() {
       controller?.abort();
       if (retryTimer) clearTimeout(retryTimer);
     };
-  }, [sessionToken]);
+  }, []);
 
   const visibleTickets = useMemo(
     () =>
@@ -207,29 +195,19 @@ export default function AgentWorkbenchClient() {
     setSelectedId(ticket.id);
   }
 
-  async function switchAgent(nextSession: string | null) {
-    if (!nextSession || nextSession === sessionToken || busy) return;
-    setSessionToken(nextSession);
-    setNote('');
-    setReply('');
-    setNotice('');
-    setError('');
-    await load(nextSession);
-  }
-
   async function acceptTicket() {
     if (!selected || busy) return;
     setBusy(true);
     setError('');
     setNotice('');
     try {
-      const updated = await acceptAgentTicket(sessionToken, selected.id);
+      const updated = await acceptAgentTicket(selected.id);
       updateTicket(updated);
       setNotice(`已受理工单 ${updated.ticket_number}`);
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : '受理失败';
       try {
-        const nextTickets = await listAgentTickets(sessionToken);
+        const nextTickets = await listAgentTickets();
         setTickets(nextTickets);
       } catch {
         // 保留原始受理冲突，实时流恢复后会同步最新状态。
@@ -247,7 +225,6 @@ export default function AgentWorkbenchClient() {
     setNotice('');
     try {
       const updated = await addAgentTicketNote(
-        sessionToken,
         selected.id,
         note.trim(),
       );
@@ -268,7 +245,6 @@ export default function AgentWorkbenchClient() {
     setNotice('');
     try {
       const updated = await sendAgentTicketMessage(
-        sessionToken,
         selected.id,
         reply.trim(),
       );
@@ -289,7 +265,6 @@ export default function AgentWorkbenchClient() {
     setNotice('');
     try {
       const updated = await resolveAgentTicket(
-        sessionToken,
         selected.id,
         note.trim(),
       );
@@ -319,18 +294,6 @@ export default function AgentWorkbenchClient() {
           <div className="flex items-center gap-2">
             <StaffNavigation active="agent" />
             <RealtimeStatusBadge status={streamStatus} />
-            <Select value={sessionToken} onValueChange={switchAgent}>
-              <SelectTrigger className="h-8 w-[132px]" aria-label="切换演示坐席">
-                <SelectValue placeholder="选择坐席" />
-              </SelectTrigger>
-              <SelectContent>
-                {AGENT_SESSIONS.map((agent) => (
-                  <SelectItem key={agent.token} value={agent.token}>
-                    {agent.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
             <span className="sr-only">当前坐席：{profile?.name ?? '校验中'}</span>
           </div>
         </div>
