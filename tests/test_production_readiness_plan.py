@@ -43,3 +43,44 @@ def test_production_plan_documents_non_powershell_commands() -> None:
     assert "scripts\\verify.cmd" in text
     assert "scripts\\verify-release.cmd --cold-start" in text
     assert "--verify-model --evaluate-full-model" in text
+
+
+def test_production_plan_defines_xianyu_local_read_only_experiment() -> None:
+    text = PLAN.read_text(encoding="utf-8")
+
+    required_sections = (
+        "阶段 9B：闲鱼个人账号本地只读实验（待实施）",
+        "阶段 9B-1：可见登录与本地会话边界",
+        "阶段 9B-2：聊天列表只读映射",
+        "阶段 9B-3：会话详情只读映射",
+        "阶段 9B-4：账号切换、删除和保留期限",
+        "阶段 9B 退出条件",
+        "阶段 9C：官方只读沙箱适配器（待外部条件）",
+    )
+    positions = [text.index(section) for section in required_sections]
+    assert positions == sorted(positions)
+
+    for safety_rule in (
+        "不得读取短信、保存验证码、代替用户通过验证、批量登录或在后台无人值守重试",
+        "本阶段不发送消息、不自动回复、不点击商品、不操作订单、不发货、不关单、不退款",
+        "不代表闲鱼授权、协议合规、生产稳定性或服务器部署通过",
+        "禁止非官方页面接入",
+        "实验性闲鱼个人账号连接，仅供本人授权的本地测试",
+    ):
+        assert safety_rule in text
+
+
+def test_production_plan_records_xianyu_pilot_decisions_and_retention() -> None:
+    text = PLAN.read_text(encoding="utf-8")
+
+    for decision in (
+        "首批试点范围为闲鱼客户和客服",
+        "员工开发阶段继续使用现有账号体系",
+        "不合并不同平台或不同账号的客户身份",
+        "先完成本地开发，服务器部署另行决策",
+        "聊天消息默认在会话结束后保存 180 天",
+        "客服工单和处理结果保存 1 年",
+        "登录与安全审计保存 180 天",
+        "模型完整输入输出在脱敏后最多保存 30 天",
+    ):
+        assert decision in text

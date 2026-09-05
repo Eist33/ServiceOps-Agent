@@ -41,7 +41,8 @@ def test_contract_and_plan_do_not_claim_real_platform_connectivity() -> None:
     assert "没有连接任何真实平台" in contract
     assert "不会产生外部网络请求" in contract
     assert "阶段 9A：平台无关契约与失败关闭桩（已完成）" in plan
-    assert "阶段 9B：官方只读沙箱适配器（待外部条件）" in plan
+    assert "阶段 9B：闲鱼个人账号本地只读实验（待实施）" in plan
+    assert "阶段 9C：官方只读沙箱适配器（待外部条件）" in plan
 
 
 def test_operations_dashboard_exposes_only_safe_platform_status() -> None:
