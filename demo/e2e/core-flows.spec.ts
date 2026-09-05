@@ -1,12 +1,14 @@
 import { expect, test, type Page } from '@playwright/test';
 
+const API_BASE_URL = 'http://127.0.0.1:8100';
+
 async function sendNaturalLanguage(page: Page, content: string) {
   await page.getByLabel('输入售后问题').fill(content);
   await page.getByRole('button', { name: '发送消息' }).click();
 }
 
 test.beforeEach(async ({ page, request }) => {
-  await request.post('http://127.0.0.1:8000/api/demo/reset', {
+  await request.post(`${API_BASE_URL}/api/demo/reset`, {
     headers: { 'X-Demo-Session': 'demo-linmu-session' },
   });
   await page.addInitScript(() => {
@@ -129,12 +131,12 @@ test('工单可转人工并展示自动分派与 SLA', async ({ page }) => {
 test('人工坐席可受理、记录并解决工单', async ({ page, request }) => {
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
   const conversationResponse = await request.post(
-    'http://127.0.0.1:8000/api/conversations',
+    `${API_BASE_URL}/api/conversations`,
     { headers: customerHeaders },
   );
   const conversation = await conversationResponse.json();
   const ticketResponse = await request.post(
-    'http://127.0.0.1:8000/api/tickets',
+    `${API_BASE_URL}/api/tickets`,
     {
       headers: customerHeaders,
       data: {
@@ -152,7 +154,7 @@ test('人工坐席可受理、记录并解决工单', async ({ page, request }) 
     { conversationId: conversation.id },
   );
   await request.post(
-    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    `${API_BASE_URL}/api/tickets/${ticket.id}/handoff`,
     { headers: customerHeaders },
   );
 
@@ -270,12 +272,12 @@ test('人工坐席无需刷新即可接收新工单', async ({ page, request }) 
   await expect(page.getByText('当前筛选下没有工单。')).toBeVisible();
 
   const conversationResponse = await request.post(
-    'http://127.0.0.1:8000/api/conversations',
+    `${API_BASE_URL}/api/conversations`,
     { headers: customerHeaders },
   );
   const conversation = await conversationResponse.json();
   const ticketResponse = await request.post(
-    'http://127.0.0.1:8000/api/tickets',
+    `${API_BASE_URL}/api/tickets`,
     {
       headers: customerHeaders,
       data: {
@@ -288,7 +290,7 @@ test('人工坐席无需刷新即可接收新工单', async ({ page, request }) 
   );
   const ticket = await ticketResponse.json();
   await request.post(
-    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    `${API_BASE_URL}/api/tickets/${ticket.id}/handoff`,
     { headers: customerHeaders },
   );
 
@@ -304,12 +306,12 @@ test('人工坐席无需刷新即可接收新工单', async ({ page, request }) 
 test('客户与受理坐席可双向同步工单消息', async ({ page, request, context }) => {
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
   const conversationResponse = await request.post(
-    'http://127.0.0.1:8000/api/conversations',
+    `${API_BASE_URL}/api/conversations`,
     { headers: customerHeaders },
   );
   const conversation = await conversationResponse.json();
   const ticketResponse = await request.post(
-    'http://127.0.0.1:8000/api/tickets',
+    `${API_BASE_URL}/api/tickets`,
     {
       headers: customerHeaders,
       data: {
@@ -322,7 +324,7 @@ test('客户与受理坐席可双向同步工单消息', async ({ page, request,
   );
   const ticket = await ticketResponse.json();
   await request.post(
-    `http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`,
+    `${API_BASE_URL}/api/tickets/${ticket.id}/handoff`,
     { headers: customerHeaders },
   );
 
@@ -445,11 +447,11 @@ test('运营人员可筛选处理组与 SLA 并导出当前工单', async ({ pag
   const customerHeaders = { 'X-Demo-Session': 'demo-linmu-session' };
   async function createTicket(ticketType: 'SHIPPING' | 'OTHER', reason: string) {
     const conversationResponse = await request.post(
-      'http://127.0.0.1:8000/api/conversations',
+      `${API_BASE_URL}/api/conversations`,
       { headers: customerHeaders },
     );
     const conversation = await conversationResponse.json();
-    const response = await request.post('http://127.0.0.1:8000/api/tickets', {
+    const response = await request.post(`${API_BASE_URL}/api/tickets`, {
       headers: customerHeaders,
       data: {
         conversation_id: conversation.id,
@@ -500,11 +502,11 @@ test('运营看板无需刷新即可接收并关闭主动告警', async ({ page,
   await expect(page.getByText('当前没有需要运营介入的主动告警。')).toBeVisible();
 
   const conversationResponse = await request.post(
-    'http://127.0.0.1:8000/api/conversations',
+    `${API_BASE_URL}/api/conversations`,
     { headers: customerHeaders },
   );
   const conversation = await conversationResponse.json();
-  const ticketResponse = await request.post('http://127.0.0.1:8000/api/tickets', {
+  const ticketResponse = await request.post(`${API_BASE_URL}/api/tickets`, {
     headers: customerHeaders,
     data: {
       conversation_id: conversation.id,
@@ -514,7 +516,7 @@ test('运营看板无需刷新即可接收并关闭主动告警', async ({ page,
     },
   });
   const ticket = await ticketResponse.json();
-  await request.post(`http://127.0.0.1:8000/api/tickets/${ticket.id}/handoff`, {
+  await request.post(`${API_BASE_URL}/api/tickets/${ticket.id}/handoff`, {
     headers: customerHeaders,
   });
 
@@ -540,7 +542,7 @@ test('运营看板无需刷新即可接收并关闭主动告警', async ({ page,
   ).toContainText('已由 许知夏 确认');
 
   const accepted = await request.post(
-    `http://127.0.0.1:8000/api/agent/tickets/${ticket.id}/accept`,
+    `${API_BASE_URL}/api/agent/tickets/${ticket.id}/accept`,
     { headers: { 'X-Agent-Session': 'demo-support-agent-session' } },
   );
   expect(accepted.ok()).toBeTruthy();

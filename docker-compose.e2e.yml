@@ -1,0 +1,51 @@
+name: harbor-support-e2e
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: serviceops_e2e
+      POSTGRES_USER: serviceops_e2e
+      POSTGRES_PASSWORD: serviceops_e2e
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U serviceops_e2e -d serviceops_e2e"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api:
+    build: ./apps/api
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://serviceops_e2e:serviceops_e2e@postgres:5432/serviceops_e2e
+      WEB_ORIGIN: http://127.0.0.1:3100
+      AGENT_MODE: deterministic
+      DEMO_MODE_ENABLED: "true"
+      API_DOCS_ENABLED: "true"
+      SENSITIVE_TRACING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    ports:
+      - "8100:8000"
+
+  web:
+    build:
+      context: ./demo
+      args:
+        NEXT_PUBLIC_API_URL: http://127.0.0.1:8100
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3000').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    ports:
+      - "3100:3000"

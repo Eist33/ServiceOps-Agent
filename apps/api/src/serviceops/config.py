@@ -1,5 +1,8 @@
 from functools import lru_cache
+from typing import Self
+from urllib.parse import urlparse
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,12 +25,47 @@ class Settings(BaseSettings):
     model_circuit_cooldown_seconds: float = 60.0
     model_fallback_enabled: bool = True
     model_max_turns: int = 8
+    demo_mode_enabled: bool = True
+    api_docs_enabled: bool = True
     # Legacy OpenAI-specific settings remain supported during migration.
     openai_model: str = "gpt-5.4-mini"
     openai_api_key: str | None = None
     sensitive_tracing_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_production_security(self) -> Self:
+        if self.app_env.strip().lower() != "production":
+            return self
+
+        errors: list[str] = []
+        if self.demo_mode_enabled:
+            errors.append("DEMO_MODE_ENABLED must be false")
+        if self.api_docs_enabled:
+            errors.append("API_DOCS_ENABLED must be false")
+        if self.sensitive_tracing_enabled:
+            errors.append("SENSITIVE_TRACING_ENABLED must be false")
+        if self.database_url.lower().startswith("sqlite"):
+            errors.append("DATABASE_URL must use PostgreSQL")
+        if "serviceops:serviceops@" in self.database_url.lower():
+            errors.append("DATABASE_URL must not use demonstration credentials")
+
+        origins = [origin.strip() for origin in self.web_origin.split(",") if origin.strip()]
+        if not origins:
+            errors.append("WEB_ORIGIN must contain at least one HTTPS origin")
+        for origin in origins:
+            parsed = urlparse(origin)
+            if (
+                origin == "*"
+                or parsed.scheme != "https"
+                or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+            ):
+                errors.append(f"WEB_ORIGIN is not production-safe: {origin}")
+
+        if errors:
+            raise ValueError("Production security validation failed: " + "; ".join(errors))
+        return self
 
 
 @lru_cache

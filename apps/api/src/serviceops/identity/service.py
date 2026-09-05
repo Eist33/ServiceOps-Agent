@@ -2,6 +2,7 @@ from fastapi import Depends, Header
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from serviceops.config import Settings, get_settings
 from serviceops.database import get_db
 from serviceops.models import Customer, Operator
 from serviceops.shared.errors import ForbiddenError
@@ -9,6 +10,11 @@ from serviceops.shared.errors import ForbiddenError
 DEMO_SESSION_HEADER = "X-Demo-Session"
 OPS_SESSION_HEADER = "X-Ops-Session"
 AGENT_SESSION_HEADER = "X-Agent-Session"
+
+
+def _require_demo_identity(settings: Settings) -> None:
+    if not settings.demo_mode_enabled:
+        raise ForbiddenError("当前环境未启用演示身份认证")
 
 
 def resolve_customer(db: Session, session_token: str | None) -> Customer:
@@ -23,7 +29,9 @@ def resolve_customer(db: Session, session_token: str | None) -> Customer:
 def current_customer(
     x_demo_session: str | None = Header(default=None, alias=DEMO_SESSION_HEADER),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> Customer:
+    _require_demo_identity(settings)
     return resolve_customer(db, x_demo_session)
 
 
@@ -39,14 +47,18 @@ def resolve_operator(db: Session, session_token: str | None) -> Operator:
 def current_operator(
     x_ops_session: str | None = Header(default=None, alias=OPS_SESSION_HEADER),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> Operator:
+    _require_demo_identity(settings)
     return resolve_operator(db, x_ops_session)
 
 
 def current_support_agent(
     x_agent_session: str | None = Header(default=None, alias=AGENT_SESSION_HEADER),
     db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
 ) -> Operator:
+    _require_demo_identity(settings)
     if not x_agent_session:
         raise ForbiddenError("缺少坐席会话凭证")
     operator = db.scalar(

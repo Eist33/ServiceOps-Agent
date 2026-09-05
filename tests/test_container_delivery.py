@@ -93,3 +93,96 @@ def test_compose_services_restart_after_docker_desktop_recovers() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert compose.count("restart: unless-stopped") == 3
+
+
+def test_non_powershell_start_checks_docker_api_and_web() -> None:
+    script = (ROOT / "scripts" / "start-product.cmd").read_text(encoding="utf-8")
+
+    assert "docker info" in script
+    assert "docker compose up -d --wait" in script
+    assert "http://127.0.0.1:8000/health" in script
+    assert "http://127.0.0.1:3000/" in script
+    assert "--no-browser" in script
+    assert "powershell" not in script.lower()
+
+
+def test_non_powershell_verification_covers_complete_release_gate() -> None:
+    verification = (ROOT / "scripts" / "verify.cmd").read_text(encoding="utf-8")
+    release = (ROOT / "scripts" / "verify-release.cmd").read_text(encoding="utf-8")
+    e2e = (ROOT / "scripts" / "verify-e2e.cmd").read_text(encoding="utf-8")
+
+    for command in ("ruff.exe", "pytest.exe", "oxlint.CMD", "vinext.CMD", "verify-e2e.cmd"):
+        assert command in verification
+    for command in (
+        "docker compose up -d --build --wait",
+        "alembic current",
+        "evaluate-knowledge",
+        "evaluate-agent",
+        "scripts\\verify.cmd",
+        "verify_model_provider.py",
+        "--runtime model",
+        "/api/demo/reset",
+    ):
+        assert command in release
+    for route in ("3000/", "3000/staff/agent", "3000/staff/knowledge", "3000/staff/operations"):
+        assert route in release
+    assert "powershell" not in verification.lower()
+    assert "powershell" not in release.lower()
+    assert "playwright.CMD test" in e2e
+    assert "docker-compose.e2e.yml up -d --build --wait" in e2e
+    assert "docker-compose.e2e.yml down -v" in e2e
+    assert "powershell" not in e2e.lower()
+
+
+def test_playwright_release_gate_is_isolated_from_running_docker_product() -> None:
+    config = (ROOT / "demo" / "playwright.config.ts").read_text(encoding="utf-8")
+    scenarios = (ROOT / "demo" / "e2e" / "core-flows.spec.ts").read_text(
+        encoding="utf-8"
+    )
+
+    assert "http://127.0.0.1:8100" in config
+    assert "http://127.0.0.1:3100" in config
+    assert "reuseExistingServer: !process.env.CI" in config
+    assert "E2E_EXTERNAL_SERVER" in config
+    assert "serviceops-e2e-${process.pid}.db" in config
+    assert "DATABASE_URL: `sqlite:///${databasePath}`" in config
+    assert "--timeout-graceful-shutdown 2" in config
+    assert "const API_BASE_URL = 'http://127.0.0.1:8100'" in scenarios
+    assert "http://127.0.0.1:8000" not in scenarios
+
+
+def test_compose_explicitly_marks_local_runtime_as_demo() -> None:
+    compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
+
+    assert 'DEMO_MODE_ENABLED: "true"' in compose
+    assert 'API_DOCS_ENABLED: "true"' in compose
+
+
+def test_e2e_compose_is_deterministic_and_does_not_publish_postgres() -> None:
+    compose = (ROOT / "docker-compose.e2e.yml").read_text(encoding="utf-8")
+
+    assert "AGENT_MODE: deterministic" in compose
+    assert "WEB_ORIGIN: http://127.0.0.1:3100" in compose
+    assert '"8100:8000"' in compose
+    assert '"3100:3000"' in compose
+    assert "fetch('http://localhost:3000')" in compose
+    postgres_section = compose.split("  api:", maxsplit=1)[0]
+    assert "ports:" not in postgres_section
+
+
+def test_initial_migration_uses_a_frozen_schema_snapshot() -> None:
+    migration = (
+        ROOT
+        / "apps"
+        / "api"
+        / "alembic"
+        / "versions"
+        / "20260831_0001_initial.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from serviceops.database import Base" not in migration
+    assert "Base.metadata" not in migration
+    assert "def _initial_metadata()" in migration
+    assert '"operators"' not in migration
+    assert '"model_invocations"' not in migration
+    assert '"priority"' not in migration

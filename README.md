@@ -55,6 +55,14 @@ docker compose up --build
 
 Windows 用户也可以在 Docker Desktop 启动后直接运行：
 
+```bat
+scripts\start-product.cmd
+```
+
+不希望自动打开浏览器时使用 `scripts\start-product.cmd --no-browser`。该入口使用 Windows 命令提示符，不依赖 PowerShell。
+
+仍需使用 PowerShell 的用户也可以运行：
+
 ```powershell
 .\scripts\start-product.ps1
 ```
@@ -106,6 +114,8 @@ MODEL_API_KEY=your-server-side-deepseek-key
 
 详细部署、回滚和生产环境注意事项见 [部署指南](docs/deployment.md)。不要把 API Key 粘贴到聊天、截图、Git 提交或浏览器代码中。
 
+不使用 PowerShell 时，可以在根目录 `.env` 中安全配置模型环境变量，然后运行 `scripts\verify-release.cmd --verify-model`。
+
 兼容期仍支持原来的 `AGENT_MODE=openai`、`OPENAI_API_KEY` 和 `OPENAI_MODEL` 配置，但订单归属、建单幂等、退款金额与最终确认仍由同一套服务端领域规则控制。
 
 ## 本地开发
@@ -143,6 +153,14 @@ pnpm run test:e2e
 ```
 
 交付前可用一条命令执行 Docker 构建、可选冷启动、迁移版本、四个页面、API 健康、全部自动化测试和演示数据重置：
+
+```bat
+scripts\verify-release.cmd --cold-start
+```
+
+该 CMD 入口会执行后端、前端、Playwright、知识评测和 70 条离线 Agent 编排评测，不依赖 PowerShell。只运行代码级完整测试时使用 `scripts\verify.cmd`。
+
+原 PowerShell 入口仍然保留：
 
 ```powershell
 .\scripts\verify-release.ps1 -ColdStart
@@ -188,3 +206,5 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 - 当前质检使用透明的固定规则，不包含模型对语气、同理心或复杂方案合理性的主观判断。
 - 当前客户满意度为每个已解决工单一次 1–5 星评价，不包含追评、修改评价或独立问卷编排。
 - 暂不包含多渠道、多 Agent、消息队列或 Elasticsearch。
+
+后续生产认证、真实业务适配器、基础设施、灾备和试点发布的实施顺序见 [生产化开发流程](docs/企业客服与工单执行Agent_生产化开发流程_v1.0.md)。

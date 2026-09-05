@@ -92,8 +92,9 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     if settings.database_url.startswith("sqlite"):
         Base.metadata.create_all(bind=engine)
-    with Session(engine) as db:
-        seed_database(db)
+    if settings.demo_mode_enabled:
+        with Session(engine) as db:
+            seed_database(db)
     yield
 
 
@@ -104,13 +105,23 @@ def create_app() -> FastAPI:
         version="0.1.0",
         description="Enterprise customer support and ticket execution Agent MVP",
         lifespan=lifespan,
+        docs_url="/docs" if settings.api_docs_enabled else None,
+        redoc_url="/redoc" if settings.api_docs_enabled else None,
+        openapi_url="/openapi.json" if settings.api_docs_enabled else None,
     )
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in settings.web_origin.split(",")],
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=[
+            "Content-Type",
+            "Idempotency-Key",
+            "X-Agent-Session",
+            "X-Demo-Session",
+            "X-Ops-Session",
+            "X-Trace-ID",
+        ],
         expose_headers=["X-Trace-ID"],
     )
 
@@ -140,6 +151,14 @@ def create_app() -> FastAPI:
                 },
             )
         response.headers["X-Trace-ID"] = request.state.trace_id
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        if settings.app_env.strip().lower() == "production":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains"
+            )
         log_request_event(
             logging.INFO,
             "request_completed",
@@ -346,15 +365,15 @@ def create_app() -> FastAPI:
     ):
         return deactivate_knowledge_article(db, article_id)
 
-    @app.post("/api/demo/reset")
-    def reset_demo(
-        db: Session = Depends(get_db),
-        _customer: Customer = Depends(current_customer),
-    ):
-        if settings.app_env == "production":
-            raise ValidationError("DEMO_RESET_DISABLED", "生产环境不允许重置演示数据")
-        reset_demo_state(db)
-        return {"status": "reset"}
+    if settings.demo_mode_enabled:
+
+        @app.post("/api/demo/reset")
+        def reset_demo(
+            db: Session = Depends(get_db),
+            _customer: Customer = Depends(current_customer),
+        ):
+            reset_demo_state(db)
+            return {"status": "reset"}
 
     @app.post("/api/conversations", response_model=ConversationCreateResponse)
     def start_conversation(

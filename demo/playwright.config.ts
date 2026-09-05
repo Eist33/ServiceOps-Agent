@@ -1,10 +1,19 @@
 import { defineConfig } from '@playwright/test';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const isWindows = process.platform === 'win32';
 const python = isWindows ? '..\\..\\.venv\\Scripts\\python.exe' : 'python';
 const vinext = isWindows
   ? 'node_modules\\.bin\\vinext.cmd'
   : 'node_modules/.bin/vinext';
+const apiBaseUrl = 'http://127.0.0.1:8100';
+const webBaseUrl = 'http://127.0.0.1:3100';
+const databasePath = join(tmpdir(), `serviceops-e2e-${process.pid}.db`).replaceAll(
+  '\\',
+  '/',
+);
+const manageLocalServers = process.env.E2E_EXTERNAL_SERVER !== 'true';
 
 export default defineConfig({
   testDir: './e2e',
@@ -12,28 +21,30 @@ export default defineConfig({
   retries: 0,
   reporter: 'list',
   use: {
-    baseURL: 'http://127.0.0.1:3000',
+    baseURL: webBaseUrl,
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
-  webServer: [
-    {
-      command: `${python} -m uvicorn serviceops.main:app --host 127.0.0.1 --port 8000`,
-      cwd: '../apps/api',
-      url: 'http://127.0.0.1:8000/health',
-      reuseExistingServer: true,
-      env: {
-        DATABASE_URL: 'sqlite:///./e2e.db',
-        AGENT_MODE: 'deterministic',
-        WEB_ORIGIN: 'http://127.0.0.1:3000',
-      },
-    },
-    {
-      command: `${vinext} dev --host 127.0.0.1 --port 3000`,
-      cwd: '.',
-      url: 'http://127.0.0.1:3000',
-      reuseExistingServer: true,
-      env: { NEXT_PUBLIC_API_URL: 'http://127.0.0.1:8000' },
-    },
-  ],
+  webServer: manageLocalServers
+    ? [
+        {
+          command: `${python} -m uvicorn serviceops.main:app --host 127.0.0.1 --port 8100 --timeout-graceful-shutdown 2`,
+          cwd: '../apps/api',
+          url: `${apiBaseUrl}/health`,
+          reuseExistingServer: !process.env.CI,
+          env: {
+            DATABASE_URL: `sqlite:///${databasePath}`,
+            AGENT_MODE: 'deterministic',
+            WEB_ORIGIN: webBaseUrl,
+          },
+        },
+        {
+          command: `${vinext} dev --host 127.0.0.1 --port 3100`,
+          cwd: '.',
+          url: webBaseUrl,
+          reuseExistingServer: !process.env.CI,
+          env: { NEXT_PUBLIC_API_URL: apiBaseUrl },
+        },
+      ]
+    : undefined,
 });
