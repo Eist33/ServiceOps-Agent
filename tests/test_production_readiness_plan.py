@@ -113,6 +113,10 @@ def test_future_external_stages_keep_explicit_unconfigured_gates() -> None:
         "阶段 11 的本地交付是平台无关的基础设施准入门禁",
         "配置但缺少负责人、演练或共同审批时返回 `NOT_APPROVED`",
         "阶段 12 当前没有真实模型试点或扩大范围签署",
+        "阶段 12 的本地交付是平台无关的模型发布与试点准入门禁",
+        "配置但缺少脱敏样本、评测、安全计数为 0、人工接管/回滚演练或共同审批时返回 `NOT_APPROVED`",
+        "`READY_FOR_PILOT_REVIEW`",
+        "不发起模型请求、不打开试点流量、不执行退款",
         "不得把本地桩或确定性评测描述为生产就绪",
     ):
         assert requirement in text
