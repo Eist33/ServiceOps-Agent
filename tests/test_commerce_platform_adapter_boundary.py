@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 COMMERCE = ROOT / "apps" / "api" / "src" / "serviceops" / "integrations" / "commerce"
 CONTRACT_DOC = ROOT / "docs" / "电商平台只读适配器契约.md"
+WRITE_DOC = ROOT / "docs" / "阶段10-真实工单写入与退款沙箱准入门禁.md"
 PLAN = ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md"
 
 
@@ -57,6 +58,41 @@ def test_9c_readiness_gate_requires_external_evidence_without_network_code() -> 
         assert forbidden_import not in readiness
     assert "9C 本地准入门禁（无外部副作用）" in contract_doc
     assert "不会发起网络请求" in contract_doc
+
+
+def test_stage10_write_gate_is_explicitly_sandbox_only_and_network_free() -> None:
+    readiness = (COMMERCE / "write_readiness.py").read_text(encoding="utf-8")
+    write_doc = WRITE_DOC.read_text(encoding="utf-8")
+
+    for symbol in (
+        "ExternalWriteCapability",
+        "ExternalWriteReadinessEvidence",
+        "ExternalWriteReadinessReport",
+        "ExternalWriteReadinessRequirement",
+        "ExternalWriteReadinessState",
+        "ExternalWriteRuntimeStatus",
+        "evaluate_external_write_readiness",
+    ):
+        assert symbol in readiness
+    assert "external_requests_enabled=False" in readiness
+    assert "READY_FOR_SANDBOX" in readiness
+    for forbidden_import in (
+        "import httpx",
+        "import requests",
+        "from urllib",
+        "import socket",
+    ):
+        assert forbidden_import not in readiness
+    for forbidden_boundary in ("TicketWriter", "WebhookReceiver", "RefundGateway"):
+        assert forbidden_boundary not in readiness
+    for required_text in (
+        "阶段 10 本地准入门禁（无外部副作用）",
+        "NOT_CONFIGURED",
+        "NOT_APPROVED",
+        "READY_FOR_SANDBOX",
+        "不会发起外部请求",
+    ):
+        assert required_text in write_doc
 
 
 def test_contract_and_plan_do_not_claim_real_platform_connectivity() -> None:

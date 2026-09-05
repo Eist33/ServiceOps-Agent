@@ -28,6 +28,18 @@ from serviceops.integrations.commerce.registry import (
     CommerceAdapterRegistry,
     build_default_commerce_registry,
 )
+from serviceops.integrations.commerce.write_readiness import (
+    REQUIRED_EXTERNAL_WRITE_CAPABILITIES,
+    REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS,
+    ExternalWriteCapability,
+    ExternalWriteReadinessEvidence,
+    ExternalWriteReadinessReport,
+    ExternalWriteReadinessRequirement,
+    ExternalWriteReadinessState,
+    ExternalWriteRuntimeStatus,
+    evaluate_external_write_readiness,
+    unconfigured_external_write_runtime_status,
+)
 
 __all__ = [
     "AdapterErrorCode",
@@ -55,5 +67,15 @@ __all__ = [
     "ShippingReader",
     "VerifiedExternalIdentity",
     "evaluate_official_adapter_readiness",
+    "ExternalWriteCapability",
+    "ExternalWriteReadinessEvidence",
+    "ExternalWriteReadinessReport",
+    "ExternalWriteReadinessRequirement",
+    "ExternalWriteReadinessState",
+    "ExternalWriteRuntimeStatus",
+    "REQUIRED_EXTERNAL_WRITE_CAPABILITIES",
+    "REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS",
+    "evaluate_external_write_readiness",
+    "unconfigured_external_write_runtime_status",
     "build_default_commerce_registry",
 ]

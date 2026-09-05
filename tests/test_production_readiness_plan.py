@@ -105,7 +105,9 @@ def test_future_external_stages_keep_explicit_unconfigured_gates() -> None:
     for requirement in (
         "9C 的本地交付是平台无关的准入门禁",
         "正式官方适配器仍受外部资质、接口文档和沙箱账号阻塞",
+        "阶段 10 的本地交付是平台无关的写入准入门禁",
         "阶段 10 当前不注册 `TicketWriter`、`WebhookReceiver` 或 `RefundGateway`",
+        "配置但缺少共同审批时返回 `NOT_APPROVED`",
         "真实写入和资金动作保持关闭",
         "阶段 11 当前没有托管 PostgreSQL、Secret Manager、外部告警或物理备份服务",
         "阶段 12 当前没有真实模型试点或扩大范围签署",

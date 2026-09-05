@@ -2,6 +2,8 @@ import pytest
 
 from serviceops.integrations.commerce import (
     READ_ONLY_CAPABILITIES,
+    REQUIRED_EXTERNAL_WRITE_CAPABILITIES,
+    REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS,
     REQUIRED_READINESS_REQUIREMENTS,
     AdapterErrorCode,
     AdapterState,
@@ -9,6 +11,11 @@ from serviceops.integrations.commerce import (
     CommerceAdapterError,
     CommerceProvider,
     ExternalOrderRef,
+    ExternalWriteCapability,
+    ExternalWriteReadinessEvidence,
+    ExternalWriteReadinessRequirement,
+    ExternalWriteReadinessState,
+    ExternalWriteRuntimeStatus,
     IdentityProvider,
     IntegrationCapability,
     IntegrationStatus,
@@ -19,7 +26,9 @@ from serviceops.integrations.commerce import (
     ReadinessRequirement,
     ShippingReader,
     build_default_commerce_registry,
+    evaluate_external_write_readiness,
     evaluate_official_adapter_readiness,
+    unconfigured_external_write_runtime_status,
 )
 
 
@@ -217,6 +226,172 @@ def test_readiness_gate_rejects_provider_mismatch_before_any_activation() -> Non
                 external_requests_enabled=True,
                 message="mismatched status",
             ),
+        )
+
+
+def _configured_write_runtime(
+    provider: CommerceProvider,
+    *,
+    external_requests_enabled: bool = False,
+) -> ExternalWriteRuntimeStatus:
+    return ExternalWriteRuntimeStatus(
+        provider=provider,
+        registered_capabilities=frozenset(REQUIRED_EXTERNAL_WRITE_CAPABILITIES),
+        endpoint_configured=True,
+        credential_reference_configured=True,
+        external_requests_enabled=external_requests_enabled,
+    )
+
+
+def _complete_write_evidence(
+    provider: CommerceProvider,
+    *,
+    completed: frozenset[ExternalWriteReadinessRequirement] | None = None,
+    approved_capabilities: frozenset[ExternalWriteCapability] | None = None,
+) -> ExternalWriteReadinessEvidence:
+    return ExternalWriteReadinessEvidence(
+        provider=provider,
+        completed=(
+            completed
+            if completed is not None
+            else frozenset(REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS)
+        ),
+        approved_capabilities=(
+            approved_capabilities
+            if approved_capabilities is not None
+            else frozenset(REQUIRED_EXTERNAL_WRITE_CAPABILITIES)
+        ),
+    )
+
+
+def test_external_write_readiness_is_not_configured_for_every_provider_by_default() -> None:
+    for provider in CommerceProvider:
+        report = evaluate_external_write_readiness(
+            ExternalWriteReadinessEvidence(
+                provider=provider,
+                completed=frozenset(),
+                approved_capabilities=frozenset(),
+            ),
+            runtime_status=unconfigured_external_write_runtime_status(provider),
+        )
+
+        assert report.state == ExternalWriteReadinessState.NOT_CONFIGURED
+        assert report.external_requests_enabled is False
+        assert report.missing_configuration == (
+            "capability:REFUND_SANDBOX",
+            "capability:TICKET_WRITE",
+            "capability:WEBHOOK_RECEIVE",
+            "external_endpoint",
+            "credential_reference",
+        )
+        assert report.missing_requirements == tuple(
+            requirement.value for requirement in REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS
+        )
+        assert report.missing_approvals == tuple(
+            f"capability:{capability.value}"
+            for capability in sorted(
+                REQUIRED_EXTERNAL_WRITE_CAPABILITIES,
+                key=lambda item: item.value,
+            )
+        )
+
+
+def test_external_write_readiness_requires_approval_after_technical_configuration() -> None:
+    provider = CommerceProvider.TAOBAO
+    report = evaluate_external_write_readiness(
+        ExternalWriteReadinessEvidence(
+            provider=provider,
+            completed=frozenset(),
+            approved_capabilities=frozenset(),
+        ),
+        runtime_status=_configured_write_runtime(provider),
+    )
+
+    assert report.state == ExternalWriteReadinessState.NOT_APPROVED
+    assert report.external_requests_enabled is False
+    assert report.missing_configuration == ()
+    assert report.missing_requirements == tuple(
+        requirement.value for requirement in REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS
+    )
+    assert report.missing_approvals == (
+        "capability:REFUND_SANDBOX",
+        "capability:TICKET_WRITE",
+        "capability:WEBHOOK_RECEIVE",
+    )
+
+
+def test_external_write_readiness_reports_each_missing_requirement_and_approval() -> None:
+    provider = CommerceProvider.XIAOHONGSHU
+    missing_requirement = ExternalWriteReadinessRequirement.REFUND_TIMEOUT_RECONCILIATION
+    report = evaluate_external_write_readiness(
+        _complete_write_evidence(
+            provider,
+            completed=frozenset(
+                requirement
+                for requirement in REQUIRED_EXTERNAL_WRITE_READINESS_REQUIREMENTS
+                if requirement != missing_requirement
+            ),
+            approved_capabilities=frozenset({ExternalWriteCapability.TICKET_WRITE}),
+        ),
+        runtime_status=_configured_write_runtime(provider),
+    )
+
+    assert report.state == ExternalWriteReadinessState.NOT_APPROVED
+    assert report.external_requests_enabled is False
+    assert report.missing_configuration == ()
+    assert report.missing_requirements == (missing_requirement.value,)
+    assert report.missing_approvals == (
+        "capability:REFUND_SANDBOX",
+        "capability:WEBHOOK_RECEIVE",
+    )
+
+
+def test_external_write_readiness_never_enables_traffic_when_runtime_flag_is_true() -> None:
+    provider = CommerceProvider.XIANYU
+    report = evaluate_external_write_readiness(
+        _complete_write_evidence(provider),
+        runtime_status=_configured_write_runtime(
+            provider,
+            external_requests_enabled=True,
+        ),
+    )
+
+    assert report.state == ExternalWriteReadinessState.NOT_CONFIGURED
+    assert report.external_requests_enabled is False
+    assert report.missing_configuration == ("external_requests_must_remain_disabled",)
+
+
+def test_external_write_readiness_returns_sandbox_candidate_without_external_traffic() -> None:
+    provider = CommerceProvider.TAOBAO
+    evidence = _complete_write_evidence(provider)
+    runtime_status = _configured_write_runtime(provider)
+
+    first = evaluate_external_write_readiness(evidence, runtime_status=runtime_status)
+    second = evaluate_external_write_readiness(evidence, runtime_status=runtime_status)
+
+    assert first == second
+    assert first.state == ExternalWriteReadinessState.READY_FOR_SANDBOX
+    assert first.external_requests_enabled is False
+    assert first.missing_configuration == ()
+    assert first.missing_requirements == ()
+    assert first.missing_approvals == ()
+    assert first.as_dict() == {
+        "provider": "TAOBAO",
+        "state": "READY_FOR_SANDBOX",
+        "capabilities": ["REFUND_SANDBOX", "TICKET_WRITE", "WEBHOOK_RECEIVE"],
+        "external_requests_enabled": False,
+        "missing_configuration": [],
+        "missing_requirements": [],
+        "missing_approvals": [],
+        "message": "阶段 10 外部写入仅通过沙箱准入，当前仍不启用外部请求",
+    }
+
+
+def test_external_write_readiness_rejects_provider_mismatch_before_activation() -> None:
+    with pytest.raises(ValueError, match="same provider"):
+        evaluate_external_write_readiness(
+            _complete_write_evidence(CommerceProvider.TAOBAO),
+            runtime_status=_configured_write_runtime(CommerceProvider.XIANYU),
         )
 
 
