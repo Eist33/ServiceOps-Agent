@@ -6,11 +6,22 @@ import { Headphones, Loader2, LockKeyhole, ShieldCheck } from 'lucide-react';
 import { useAuth } from '@/components/auth-provider';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { type DevelopmentAccountData, listDevelopmentAccounts, loginDevelopmentAccount } from '@/lib/api';
+import {
+  type DevelopmentAccountData,
+  listDevelopmentAccounts,
+  loginDevelopmentAccount,
+} from '@/lib/api';
 import type { AuthArea, AuthSessionData } from '@/lib/auth-session';
+import { clearLocalXianyuConnection } from '@/lib/xianyu-local-session';
 
 const roleLabels: Record<string, string> = {
   CUSTOMER: '客户',
@@ -64,13 +75,17 @@ function LoginSurface({ area }: { area: AuthArea }) {
     void listDevelopmentAccounts()
       .then((items) => {
         if (cancelled) return;
-        const filtered = items.filter((item) => item.principal_type === expectedType);
+        const filtered = items.filter(
+          (item) => item.principal_type === expectedType,
+        );
         setAccounts(filtered);
         setSelected(filtered[0]?.login_name ?? '');
       })
       .catch((caught) => {
         if (!cancelled) {
-          setError(caught instanceof Error ? caught.message : '开发账号加载失败');
+          setError(
+            caught instanceof Error ? caught.message : '开发账号加载失败',
+          );
         }
       })
       .finally(() => {
@@ -96,6 +111,7 @@ function LoginSurface({ area }: { area: AuthArea }) {
       if (session.principal.principal_type !== expectedType) {
         throw new Error('所选账号不能进入当前区域');
       }
+      if (area === 'staff') clearLocalXianyuConnection();
       saveSession(session);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '登录失败');
@@ -109,7 +125,11 @@ function LoginSurface({ area }: { area: AuthArea }) {
       <Card className="w-full max-w-lg border-slate-200 bg-white/95 shadow-xl shadow-slate-900/5">
         <CardHeader className="space-y-4 border-b">
           <span className="grid size-11 place-items-center rounded-2xl bg-primary text-primary-foreground">
-            {area === 'customer' ? <Headphones className="size-5" /> : <ShieldCheck className="size-5" />}
+            {area === 'customer' ? (
+              <Headphones className="size-5" />
+            ) : (
+              <ShieldCheck className="size-5" />
+            )}
           </span>
           <div>
             <CardTitle className="text-xl">
@@ -133,16 +153,21 @@ function LoginSurface({ area }: { area: AuthArea }) {
                     onClick={() => setSelected(account.login_name)}
                     type="button"
                   >
-                    <span className="block text-sm font-semibold">{account.display_name}</span>
+                    <span className="block text-sm font-semibold">
+                      {account.display_name}
+                    </span>
                     <span className="mt-1 block text-xs text-muted-foreground">
-                      {roleLabels[account.role] ?? account.role} · {account.login_name}
+                      {roleLabels[account.role] ?? account.role} ·{' '}
+                      {account.login_name}
                     </span>
                   </button>
                 ))}
               </div>
             </fieldset>
             <div className="space-y-2">
-              <Label htmlFor={`${area}-development-password`}>开发环境密码</Label>
+              <Label htmlFor={`${area}-development-password`}>
+                开发环境密码
+              </Label>
               <Input
                 autoComplete="current-password"
                 id={`${area}-development-password`}
@@ -157,7 +182,8 @@ function LoginSurface({ area }: { area: AuthArea }) {
             {selectedAccount && (
               <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-600">
                 将以 {selectedAccount.display_name} 身份进入
-                {area === 'customer' ? '客户服务页面' : '受权限保护的客服后台'}。
+                {area === 'customer' ? '客户服务页面' : '受权限保护的客服后台'}
+                。
               </p>
             )}
             {error && (
@@ -167,7 +193,11 @@ function LoginSurface({ area }: { area: AuthArea }) {
                 <AlertDescription>{error}</AlertDescription>
               </Alert>
             )}
-            <Button className="w-full" disabled={!selected || !password || busy || loading} type="submit">
+            <Button
+              className="w-full"
+              disabled={!selected || !password || busy || loading}
+              type="submit"
+            >
               {busy && <Loader2 className="animate-spin" />}
               {area === 'customer' ? '登录客户服务' : '登录客服后台'}
             </Button>
@@ -178,16 +208,28 @@ function LoginSurface({ area }: { area: AuthArea }) {
   );
 }
 
-function AccessDenied({ area, session }: { area: AuthArea; session: AuthSessionData }) {
+function AccessDenied({
+  area,
+  session,
+}: {
+  area: AuthArea;
+  session: AuthSessionData;
+}) {
   const { logout } = useAuth();
-  const target = session.principal.role === 'SUPPORT_AGENT' ? '/staff/agent' : '/staff/knowledge';
+  const target =
+    session.principal.role === 'SUPPORT_AGENT'
+      ? '/staff/agent'
+      : '/staff/knowledge';
   return (
     <main className="grid min-h-screen place-items-center bg-[#f4f7f8] px-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle><h1>当前账号无权访问</h1></CardTitle>
+          <CardTitle>
+            <h1>当前账号无权访问</h1>
+          </CardTitle>
           <CardDescription>
-            {session.principal.display_name} 当前角色为 {roleLabels[session.principal.role] ?? session.principal.role}。
+            {session.principal.display_name} 当前角色为{' '}
+            {roleLabels[session.principal.role] ?? session.principal.role}。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex gap-2">
@@ -196,7 +238,9 @@ function AccessDenied({ area, session }: { area: AuthArea; session: AuthSessionD
               进入可用工作区
             </Button>
           )}
-          <Button onClick={() => void logout(area)} variant="outline">切换账号</Button>
+          <Button onClick={() => void logout(area)} variant="outline">
+            切换账号
+          </Button>
         </CardContent>
       </Card>
     </main>

@@ -16,6 +16,7 @@ import {
   storeAuthSession,
   subscribeAuthSessions,
 } from '@/lib/auth-session';
+import { clearLocalXianyuConnection } from '@/lib/xianyu-local-session';
 
 type AuthContextValue = {
   ready: boolean;
@@ -63,6 +64,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (session) await logoutAuthSession(session.access_token);
       } finally {
         clearAuthSession(area);
+        if (area === 'staff') clearLocalXianyuConnection();
       }
     },
   };
