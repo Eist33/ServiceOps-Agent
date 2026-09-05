@@ -33,6 +33,7 @@ from serviceops.identity.service import (
     login_development_account,
     revoke_auth_session,
 )
+from serviceops.integrations.commerce import build_default_commerce_registry
 from serviceops.knowledge.management import (
     deactivate_knowledge_article,
     list_knowledge_articles,
@@ -60,6 +61,7 @@ from serviceops.shared.schemas import (
     AuthLoginRequest,
     AuthLoginResponse,
     AuthPrincipalResponse,
+    CommerceIntegrationStatusResponse,
     ConversationCreateResponse,
     CustomerFeedbackRequest,
     CustomerFeedbackResponse,
@@ -111,6 +113,7 @@ async def lifespan(_: FastAPI):
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    commerce_registry = build_default_commerce_registry()
     app = FastAPI(
         title=settings.app_name,
         version="0.1.0",
@@ -120,6 +123,7 @@ def create_app() -> FastAPI:
         redoc_url="/redoc" if settings.api_docs_enabled else None,
         openapi_url="/openapi.json" if settings.api_docs_enabled else None,
     )
+    app.state.commerce_registry = commerce_registry
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in settings.web_origin.split(",")],
@@ -359,6 +363,24 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_dashboard(db)
+
+    @app.get(
+        "/api/ops/integrations/commerce",
+        response_model=list[CommerceIntegrationStatusResponse],
+    )
+    def commerce_integration_status(
+        _operator: Operator = Depends(current_operations_operator),
+    ):
+        return [
+            CommerceIntegrationStatusResponse(
+                provider=status.provider.value,
+                state=status.state.value,
+                capabilities=[capability.value for capability in status.capabilities],
+                external_requests_enabled=status.external_requests_enabled,
+                message=status.message,
+            )
+            for status in commerce_registry.statuses()
+        ]
 
     @app.get("/api/ops/tickets", response_model=OpsTicketReportResponse)
     def ops_ticket_report(

@@ -7,6 +7,7 @@ import {
   Activity,
   BellRing,
   Bot,
+  Cable,
   ChartNoAxesCombined,
   CheckCircle2,
   CircleAlert,
@@ -56,11 +57,13 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import {
+  type CommerceIntegrationStatusData,
   type OperationsDashboardData,
   type OperationsAlertSnapshotData,
   type OperationsQualityReportData,
   type OperationsTicketReportData,
   acknowledgeOperationsAlert,
+  getCommerceIntegrationStatuses,
   getOperationsDashboard,
   getOperationsQualityReport,
   getOperationsTicketReport,
@@ -75,6 +78,9 @@ const activityConfig = {
 
 export default function OperationsClient() {
   const [dashboard, setDashboard] = useState<OperationsDashboardData | null>(null);
+  const [integrationStatuses, setIntegrationStatuses] =
+    useState<CommerceIntegrationStatusData[] | null>(null);
+  const [integrationError, setIntegrationError] = useState('');
   const [alertSnapshot, setAlertSnapshot] =
     useState<OperationsAlertSnapshotData | null>(null);
   const [alertConnection, setAlertConnection] =
@@ -107,6 +113,26 @@ export default function OperationsClient() {
       }
     }
     void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadIntegrationStatuses() {
+      try {
+        const statuses = await getCommerceIntegrationStatuses();
+        if (!cancelled) setIntegrationStatuses(statuses);
+      } catch (caught) {
+        if (!cancelled) {
+          setIntegrationError(
+            caught instanceof Error ? caught.message : '平台接入状态加载失败',
+          );
+        }
+      }
+    }
+    void loadIntegrationStatuses();
     return () => {
       cancelled = true;
     };
@@ -321,6 +347,61 @@ export default function OperationsClient() {
                 tone="bg-emerald-50 text-emerald-700"
               />
             </section>
+
+            <Card aria-label="电商平台接入状态">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Cable className="size-5 text-primary" /> 电商平台接入状态
+                </CardTitle>
+                <CardDescription>
+                  当前只展示只读适配器准备情况，不读取或展示平台凭据
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                {integrationError ? (
+                  <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-3 py-2 text-sm text-red-700" role="alert">
+                    <CircleAlert className="size-4" /> {integrationError}
+                  </div>
+                ) : !integrationStatuses ? (
+                  <div className="flex justify-center py-6 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" /> 正在读取平台接入状态…
+                  </div>
+                ) : (
+                  <div className="grid gap-3 md:grid-cols-3">
+                    {integrationStatuses.map((integration) => (
+                      <article className="rounded-xl border bg-[#fbfcfc] p-4" key={integration.provider}>
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="font-semibold">{commerceProviderLabel(integration.provider)}</p>
+                          <Badge
+                            className={integration.state === 'READY'
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : integration.state === 'DEGRADED'
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-slate-100 text-slate-600'}
+                            variant="secondary"
+                          >
+                            {integrationStateLabel(integration.state)}
+                          </Badge>
+                        </div>
+                        <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                          {integration.message}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-1.5">
+                          {integration.capabilities.map((capability) => (
+                            <Badge className="text-[10px]" key={capability} variant="outline">
+                              {integrationCapabilityLabel(capability)}
+                            </Badge>
+                          ))}
+                        </div>
+                        <p className="mt-3 text-[11px] font-medium text-slate-500">
+                          {integration.external_requests_enabled ? '外部请求已启用' : '外部请求已关闭'}
+                        </p>
+                      </article>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
             <Card aria-label="主动告警中心" className="overflow-hidden">
               <CardHeader className="border-b bg-[linear-gradient(115deg,#fff7ed_0%,#ffffff_46%,#f0f9ff_100%)]">
@@ -1020,4 +1101,30 @@ function slaText(status: string) {
     BREACHED: '已超时',
     COMPLETED: '已完成',
   }[status] ?? status;
+}
+
+function commerceProviderLabel(provider: CommerceIntegrationStatusData['provider']) {
+  return {
+    TAOBAO: '淘宝',
+    XIAOHONGSHU: '小红书',
+    XIANYU: '闲鱼',
+  }[provider];
+}
+
+function integrationStateLabel(state: CommerceIntegrationStatusData['state']) {
+  return {
+    NOT_CONFIGURED: '未配置',
+    READY: '已就绪',
+    DEGRADED: '部分可用',
+  }[state];
+}
+
+function integrationCapabilityLabel(
+  capability: CommerceIntegrationStatusData['capabilities'][number],
+) {
+  return {
+    IDENTITY: '身份授权',
+    ORDERS_READ: '订单只读',
+    SHIPPING_READ: '物流只读',
+  }[capability];
 }

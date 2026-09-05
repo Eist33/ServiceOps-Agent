@@ -236,6 +236,14 @@ export type OperationsDashboardData = {
   }>;
 };
 
+export type CommerceIntegrationStatusData = {
+  provider: 'TAOBAO' | 'XIAOHONGSHU' | 'XIANYU';
+  state: 'NOT_CONFIGURED' | 'READY' | 'DEGRADED';
+  capabilities: Array<'IDENTITY' | 'ORDERS_READ' | 'SHIPPING_READ'>;
+  external_requests_enabled: boolean;
+  message: string;
+};
+
 export type OperationsTicketReportData = {
   generated_at: string;
   selected_support_group: string | null;
@@ -603,6 +611,9 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
+
+export const getCommerceIntegrationStatuses = () =>
+  opsRequest<CommerceIntegrationStatusData[]>('/api/ops/integrations/commerce');
 
 export const getOperationsQualityReport = () =>
   opsRequest<OperationsQualityReportData>('/api/ops/quality-reviews');

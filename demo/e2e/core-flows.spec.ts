@@ -465,6 +465,11 @@ test('运营看板汇总真实工单、人工接管与工具质量', async ({ pa
 
   await loginStaff(page, '许知夏', '/staff/operations');
   await expect(page.getByRole('heading', { name: '运营质量总览' })).toBeVisible();
+  const integrations = page.getByLabel('电商平台接入状态');
+  await expect(integrations.getByText('淘宝', { exact: true })).toBeVisible();
+  await expect(integrations.getByText('小红书', { exact: true })).toBeVisible();
+  await expect(integrations.getByText('闲鱼', { exact: true })).toBeVisible();
+  await expect(integrations.getByText('外部请求已关闭')).toHaveCount(3);
   await expect(page.getByLabel('活动工单').getByText('1', { exact: true })).toBeVisible();
   await expect(page.getByLabel('人工接管').getByText('1', { exact: true })).toBeVisible();
   await expect(page.getByText('100%')).toBeVisible();

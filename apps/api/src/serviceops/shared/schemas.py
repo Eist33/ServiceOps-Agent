@@ -143,6 +143,14 @@ class OpsKnowledgeSummary(BaseModel):
     versions: int
 
 
+class CommerceIntegrationStatusResponse(BaseModel):
+    provider: str
+    state: str
+    capabilities: list[str]
+    external_requests_enabled: bool
+    message: str
+
+
 class OpsDashboardResponse(BaseModel):
     generated_at: datetime
     tickets: OpsTicketSummary
