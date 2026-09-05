@@ -110,6 +110,8 @@ def test_future_external_stages_keep_explicit_unconfigured_gates() -> None:
         "配置但缺少共同审批时返回 `NOT_APPROVED`",
         "真实写入和资金动作保持关闭",
         "阶段 11 当前没有托管 PostgreSQL、Secret Manager、外部告警或物理备份服务",
+        "阶段 11 的本地交付是平台无关的基础设施准入门禁",
+        "配置但缺少负责人、演练或共同审批时返回 `NOT_APPROVED`",
         "阶段 12 当前没有真实模型试点或扩大范围签署",
         "不得把本地桩或确定性评测描述为生产就绪",
     ):
