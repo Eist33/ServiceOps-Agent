@@ -7,7 +7,15 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
-from agents import Agent, RunConfig, RunContextWrapper, Runner, function_tool
+from agents import (
+    Agent,
+    ModelSettings,
+    RunConfig,
+    RunContextWrapper,
+    Runner,
+    ToolExecutionConfig,
+    function_tool,
+)
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -403,6 +411,7 @@ class ModelSupportAgent:
                 "也不得在同一轮请求中重复调用已经尝试过的写工具。"
             ),
             tools=CUSTOMER_AGENT_TOOLS,
+            model_settings=ModelSettings(parallel_tool_calls=False),
         )
 
     async def stream(
@@ -473,6 +482,9 @@ class ModelSupportAgent:
                     model_provider=provider,
                     workflow_name="Harbor Support customer service",
                     group_id=conversation_id,
+                    tool_execution=ToolExecutionConfig(
+                        max_function_tool_concurrency=1
+                    ),
                     tracing_disabled=self.configuration.provider != "openai",
                     trace_include_sensitive_data=(
                         settings.sensitive_tracing_enabled

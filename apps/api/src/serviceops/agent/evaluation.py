@@ -213,7 +213,7 @@ def _run_case(
     engine = build_engine("sqlite+pysqlite:///:memory:")
     Base.metadata.create_all(bind=engine)
     try:
-        with Session(engine) as db:
+        with Session(engine, expire_on_commit=False) as db:
             seed_database(db)
             customer = _profile_customer(db, case.profile)
             conversation = create_conversation(db, customer)

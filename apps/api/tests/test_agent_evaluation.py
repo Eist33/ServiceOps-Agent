@@ -1,4 +1,5 @@
 import pytest
+from sqlalchemy.pool import StaticPool
 
 from serviceops.agent.evaluation import (
     DEFAULT_AGENT_CASES,
@@ -8,6 +9,7 @@ from serviceops.agent.evaluation import (
 from serviceops.agent.intent import CustomerIntent
 from serviceops.agent.providers import ModelConfigurationError
 from serviceops.config import get_settings
+from serviceops.database import build_engine
 
 
 def test_release_gate_has_required_size_and_scenario_coverage():
@@ -34,6 +36,14 @@ def test_release_gate_has_required_size_and_scenario_coverage():
         "repeat_ticket",
         "repeat_refund",
     }.issubset(tags)
+
+
+def test_in_memory_evaluation_database_is_shared_across_agent_threads():
+    engine = build_engine("sqlite+pysqlite:///:memory:")
+    try:
+        assert isinstance(engine.pool, StaticPool)
+    finally:
+        engine.dispose()
 
 
 def test_agent_orchestration_release_gate_passes_all_cases():

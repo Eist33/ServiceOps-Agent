@@ -163,13 +163,19 @@ def test_model_stream_persists_answer_and_metadata_only_audit(db):
         failure_threshold=3,
         cooldown_seconds=60,
     )
+    captured = {}
+
+    def runner(*args, **kwargs):
+        captured.update(kwargs)
+        return SuccessfulStream()
+
     agent = ModelSupportAgent(
         db,
         customer,
         configuration(),
         sdk_provider=object(),
         reliability_guard=guard,
-        runner_streamed=lambda *args, **kwargs: SuccessfulStream(),
+        runner_streamed=runner,
     )
 
     events = collect(agent, conversation.id, "你好")
@@ -179,6 +185,11 @@ def test_model_stream_persists_answer_and_metadata_only_audit(db):
         for event in events
         if event.type == EventType.MESSAGE_DELTA
     ] == ["你好，", "我可以帮你处理售后问题。"]
+    assert agent.agent.model_settings.parallel_tool_calls is False
+    assert (
+        captured["run_config"].tool_execution.max_function_tool_concurrency
+        == 1
+    )
     messages = list(
         db.scalars(
             select(Message)
