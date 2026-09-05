@@ -1,6 +1,8 @@
 import pytest
 
 from serviceops.integrations.commerce import (
+    READ_ONLY_CAPABILITIES,
+    REQUIRED_READINESS_REQUIREMENTS,
     AdapterErrorCode,
     AdapterState,
     AuthorizationCallback,
@@ -9,11 +11,15 @@ from serviceops.integrations.commerce import (
     ExternalOrderRef,
     IdentityProvider,
     IntegrationCapability,
+    IntegrationStatus,
     IntegrationStatusReader,
+    OfficialAdapterReadinessEvidence,
     OrderReader,
     PlatformIdentity,
+    ReadinessRequirement,
     ShippingReader,
     build_default_commerce_registry,
+    evaluate_official_adapter_readiness,
 )
 
 
@@ -125,6 +131,93 @@ def test_recent_order_contract_never_allows_more_than_three_orders() -> None:
     for invalid_limit in (0, 4):
         with pytest.raises(ValueError, match="between 1 and 3"):
             bundle.order_reader.list_recent_orders(identity, limit=invalid_limit)
+
+
+def test_default_registry_readiness_remains_fail_closed_without_external_evidence() -> None:
+    registry = build_default_commerce_registry()
+
+    for provider in CommerceProvider:
+        report = registry.readiness(
+            OfficialAdapterReadinessEvidence(
+                provider=provider,
+                completed=frozenset(),
+            )
+        )
+
+        assert report.state == AdapterState.NOT_CONFIGURED
+        assert report.external_requests_enabled is False
+        assert report.missing_requirements == tuple(
+            requirement.value for requirement in REQUIRED_READINESS_REQUIREMENTS
+        ) + ("runtime_adapter_ready", "external_requests_enabled")
+        assert report.as_dict()["provider"] == provider.value
+
+
+def test_readiness_gate_allows_only_complete_read_only_runtime_status() -> None:
+    provider = CommerceProvider.TAOBAO
+    evidence = OfficialAdapterReadinessEvidence(
+        provider=provider,
+        completed=frozenset(REQUIRED_READINESS_REQUIREMENTS),
+    )
+
+    report = evaluate_official_adapter_readiness(
+        evidence,
+        runtime_status=IntegrationStatus(
+            provider=provider,
+            state=AdapterState.READY,
+            capabilities=tuple(READ_ONLY_CAPABILITIES),
+            external_requests_enabled=True,
+            message="ready status supplied by an approved adapter",
+        ),
+    )
+
+    assert report.state == AdapterState.READY
+    assert report.external_requests_enabled is True
+    assert report.missing_requirements == ()
+    assert set(report.capabilities) == set(READ_ONLY_CAPABILITIES)
+
+
+def test_readiness_gate_blocks_missing_capability_even_when_other_evidence_passes() -> None:
+    provider = CommerceProvider.XIANYU
+    report = evaluate_official_adapter_readiness(
+        OfficialAdapterReadinessEvidence(
+            provider=provider,
+            completed=frozenset(REQUIRED_READINESS_REQUIREMENTS),
+        ),
+        runtime_status=IntegrationStatus(
+            provider=provider,
+            state=AdapterState.READY,
+            capabilities=(IntegrationCapability.IDENTITY, IntegrationCapability.ORDERS_READ),
+            external_requests_enabled=True,
+            message="incomplete read-only capability declaration",
+        ),
+    )
+
+    assert report.state == AdapterState.NOT_CONFIGURED
+    assert report.external_requests_enabled is False
+    assert report.missing_requirements == (
+        f"capability:{IntegrationCapability.SHIPPING_READ.value}",
+    )
+
+
+def test_readiness_gate_rejects_provider_mismatch_before_any_activation() -> None:
+    with pytest.raises(ValueError, match="same provider"):
+        evaluate_official_adapter_readiness(
+            OfficialAdapterReadinessEvidence(
+                provider=CommerceProvider.TAOBAO,
+                completed=frozenset(
+                    requirement
+                    for requirement in REQUIRED_READINESS_REQUIREMENTS
+                    if requirement != ReadinessRequirement.ROLLBACK
+                ),
+            ),
+            runtime_status=IntegrationStatus(
+                provider=CommerceProvider.XIAOHONGSHU,
+                state=AdapterState.READY,
+                capabilities=tuple(READ_ONLY_CAPABILITIES),
+                external_requests_enabled=True,
+                message="mismatched status",
+            ),
+        )
 
 
 def test_operations_can_inspect_safe_platform_readiness_without_credentials(client) -> None:

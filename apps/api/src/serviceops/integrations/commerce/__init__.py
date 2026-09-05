@@ -1,4 +1,6 @@
 from serviceops.integrations.commerce.contracts import (
+    READ_ONLY_CAPABILITIES,
+    REQUIRED_READINESS_REQUIREMENTS,
     AdapterErrorCode,
     AdapterState,
     AuthorizationCallback,
@@ -12,11 +14,15 @@ from serviceops.integrations.commerce.contracts import (
     IntegrationCapability,
     IntegrationStatus,
     IntegrationStatusReader,
+    OfficialAdapterReadinessEvidence,
+    OfficialAdapterReadinessReport,
     OrderReader,
     PlatformIdentity,
+    ReadinessRequirement,
     ShippingReader,
     VerifiedExternalIdentity,
 )
+from serviceops.integrations.commerce.readiness import evaluate_official_adapter_readiness
 from serviceops.integrations.commerce.registry import (
     CommerceAdapterBundle,
     CommerceAdapterRegistry,
@@ -39,9 +45,15 @@ __all__ = [
     "IntegrationCapability",
     "IntegrationStatus",
     "IntegrationStatusReader",
+    "OfficialAdapterReadinessEvidence",
+    "OfficialAdapterReadinessReport",
     "OrderReader",
     "PlatformIdentity",
+    "READ_ONLY_CAPABILITIES",
+    "REQUIRED_READINESS_REQUIREMENTS",
+    "ReadinessRequirement",
     "ShippingReader",
     "VerifiedExternalIdentity",
+    "evaluate_official_adapter_readiness",
     "build_default_commerce_registry",
 ]

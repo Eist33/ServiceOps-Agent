@@ -19,6 +19,15 @@ class IntegrationCapability(StrEnum):
     SHIPPING_READ = "SHIPPING_READ"
 
 
+READ_ONLY_CAPABILITIES = frozenset(
+    {
+        IntegrationCapability.IDENTITY,
+        IntegrationCapability.ORDERS_READ,
+        IntegrationCapability.SHIPPING_READ,
+    }
+)
+
+
 class AdapterState(StrEnum):
     NOT_CONFIGURED = "NOT_CONFIGURED"
     READY = "READY"
@@ -137,6 +146,52 @@ class IntegrationStatus:
     capabilities: tuple[IntegrationCapability, ...]
     external_requests_enabled: bool
     message: str
+
+
+class ReadinessRequirement(StrEnum):
+    OFFICIAL_APPLICATION = "official_application"
+    AUTHORIZATION_CONTRACT = "authorization_contract"
+    API_DOCUMENTATION = "api_documentation"
+    SANDBOX_ACCOUNT = "sandbox_account"
+    FIELD_MAPPING = "field_mapping"
+    SECRET_MANAGER_REFERENCE = "secret_manager_reference"
+    RELIABILITY_CONTROLS = "reliability_controls"
+    CONTRACT_TESTS = "contract_tests"
+    SANDBOX_READ_TESTS = "sandbox_read_tests"
+    PRIVACY_REVIEW = "privacy_review"
+    MONITORING = "monitoring"
+    ROLLBACK = "rollback"
+
+
+REQUIRED_READINESS_REQUIREMENTS = tuple(ReadinessRequirement)
+
+
+@dataclass(frozen=True, slots=True)
+class OfficialAdapterReadinessEvidence:
+    """Platform-neutral evidence required before enabling an official adapter."""
+
+    provider: CommerceProvider
+    completed: frozenset[ReadinessRequirement]
+
+
+@dataclass(frozen=True, slots=True)
+class OfficialAdapterReadinessReport:
+    provider: CommerceProvider
+    state: AdapterState
+    capabilities: tuple[IntegrationCapability, ...]
+    external_requests_enabled: bool
+    missing_requirements: tuple[str, ...]
+    message: str
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "provider": self.provider.value,
+            "state": self.state.value,
+            "capabilities": [capability.value for capability in self.capabilities],
+            "external_requests_enabled": self.external_requests_enabled,
+            "missing_requirements": list(self.missing_requirements),
+            "message": self.message,
+        }
 
 
 @runtime_checkable

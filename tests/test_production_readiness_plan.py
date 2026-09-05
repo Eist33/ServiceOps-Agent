@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md"
 
@@ -98,3 +97,32 @@ def test_production_plan_links_the_9b4_lifecycle_delivery() -> None:
         "《9B-4：账号切换、删除和保留期限》",
     ):
         assert requirement in text
+
+
+def test_future_external_stages_keep_explicit_unconfigured_gates() -> None:
+    text = PLAN.read_text(encoding="utf-8")
+
+    for requirement in (
+        "9C 的本地交付是平台无关的准入门禁",
+        "正式官方适配器仍受外部资质、接口文档和沙箱账号阻塞",
+        "阶段 10 当前不注册 `TicketWriter`、`WebhookReceiver` 或 `RefundGateway`",
+        "真实写入和资金动作保持关闭",
+        "阶段 11 当前没有托管 PostgreSQL、Secret Manager、外部告警或物理备份服务",
+        "阶段 12 当前没有真实模型试点或扩大范围签署",
+        "不得把本地桩或确定性评测描述为生产就绪",
+    ):
+        assert requirement in text
+
+
+def test_future_external_capabilities_are_not_registered_in_runtime() -> None:
+    commerce_source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in (
+            ROOT / "apps" / "api" / "src" / "serviceops" / "integrations"
+        ).rglob("*.py")
+    )
+
+    for future_boundary in ("TicketWriter", "WebhookReceiver", "RefundGateway"):
+        assert future_boundary not in commerce_source
+    assert "external_requests_enabled=False" in commerce_source
+    assert "NOT_CONFIGURED" in commerce_source

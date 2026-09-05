@@ -5,9 +5,12 @@ from serviceops.integrations.commerce.contracts import (
     IdentityProvider,
     IntegrationStatus,
     IntegrationStatusReader,
+    OfficialAdapterReadinessEvidence,
+    OfficialAdapterReadinessReport,
     OrderReader,
     ShippingReader,
 )
+from serviceops.integrations.commerce.readiness import evaluate_official_adapter_readiness
 from serviceops.integrations.commerce.stubs import UnconfiguredCommercePlatform
 
 
@@ -48,6 +51,15 @@ class CommerceAdapterRegistry:
         return tuple(
             self._status_for(self._bundles[provider])
             for provider in sorted(self._bundles, key=lambda item: item.value)
+        )
+
+    def readiness(
+        self, evidence: OfficialAdapterReadinessEvidence
+    ) -> OfficialAdapterReadinessReport:
+        bundle = self.get(evidence.provider)
+        return evaluate_official_adapter_readiness(
+            evidence,
+            runtime_status=self._status_for(bundle),
         )
 
     @staticmethod

@@ -34,9 +34,7 @@ class UnconfiguredCommercePlatform:
             message="尚未配置官方平台资质和沙箱凭证",
         )
 
-    def exchange_authorization(
-        self, callback: AuthorizationCallback
-    ) -> VerifiedExternalIdentity:
+    def exchange_authorization(self, callback: AuthorizationCallback) -> VerifiedExternalIdentity:
         del callback
         self._raise_not_configured()
 

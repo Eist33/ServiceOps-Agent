@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 COMMERCE = ROOT / "apps" / "api" / "src" / "serviceops" / "integrations" / "commerce"
 CONTRACT_DOC = ROOT / "docs" / "电商平台只读适配器契约.md"
@@ -32,6 +31,32 @@ def test_default_platform_stubs_are_fail_closed_and_network_disabled() -> None:
         "import socket",
     ):
         assert forbidden_import not in stubs
+
+
+def test_9c_readiness_gate_requires_external_evidence_without_network_code() -> None:
+    contracts = (COMMERCE / "contracts.py").read_text(encoding="utf-8")
+    readiness = (COMMERCE / "readiness.py").read_text(encoding="utf-8")
+    contract_doc = CONTRACT_DOC.read_text(encoding="utf-8")
+
+    for requirement in (
+        "OfficialAdapterReadinessEvidence",
+        "OfficialAdapterReadinessReport",
+        "ReadinessRequirement",
+        "READ_ONLY_CAPABILITIES",
+        "REQUIRED_READINESS_REQUIREMENTS",
+    ):
+        assert requirement in contracts
+    assert "external_requests_enabled=False" in readiness
+    assert "state=AdapterState.NOT_CONFIGURED" in readiness
+    for forbidden_import in (
+        "import httpx",
+        "import requests",
+        "from urllib",
+        "import socket",
+    ):
+        assert forbidden_import not in readiness
+    assert "9C 本地准入门禁（无外部副作用）" in contract_doc
+    assert "不会发起网络请求" in contract_doc
 
 
 def test_contract_and_plan_do_not_claim_real_platform_connectivity() -> None:
