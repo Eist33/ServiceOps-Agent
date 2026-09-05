@@ -10,7 +10,13 @@ from sqlalchemy.orm import Session
 
 from serviceops.config import Settings, get_settings
 from serviceops.database import get_db
-from serviceops.models import AuthSession, Customer, IdentityAccount, Operator
+from serviceops.models import (
+    AuthSession,
+    Customer,
+    IdentityAccount,
+    Operator,
+    SecurityAuditEvent,
+)
 from serviceops.shared.errors import ForbiddenError, UnauthorizedError
 
 DEMO_SESSION_HEADER = "X-Demo-Session"
@@ -45,6 +51,26 @@ def _bearer_token(authorization: str | None) -> str | None:
 
 def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _record_security_event(
+    db: Session,
+    *,
+    event_type: str,
+    outcome: str,
+    account_id: str | None = None,
+    principal_type: str | None = None,
+    principal_id: str | None = None,
+) -> None:
+    db.add(
+        SecurityAuditEvent(
+            event_type=event_type,
+            outcome=outcome,
+            account_id=account_id,
+            principal_type=principal_type,
+            principal_id=principal_id,
+        )
+    )
 
 
 def _principal_from_account(
@@ -86,17 +112,54 @@ def resolve_bearer_principal(
     session = db.scalar(
         select(AuthSession).where(AuthSession.token_hash == _token_hash(token))
     )
-    if session is None or session.revoked_at is not None:
+    if session is None:
+        raise UnauthorizedError("登录已失效，请重新登录")
+    if session.revoked_at is not None:
+        _record_security_event(
+            db,
+            event_type="AUTH_SESSION_REJECTED",
+            outcome="REVOKED",
+            account_id=session.identity_account_id,
+        )
+        db.delete(session)
+        db.commit()
         raise UnauthorizedError("登录已失效，请重新登录")
     expires_at = session.expires_at
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     if expires_at <= datetime.now(UTC):
+        _record_security_event(
+            db,
+            event_type="AUTH_SESSION_REJECTED",
+            outcome="EXPIRED",
+            account_id=session.identity_account_id,
+        )
+        db.delete(session)
+        db.commit()
         raise UnauthorizedError("登录已过期，请重新登录")
     account = db.get(IdentityAccount, session.identity_account_id)
     if account is None or not account.active:
+        _record_security_event(
+            db,
+            event_type="AUTH_SESSION_REJECTED",
+            outcome="ACCOUNT_INACTIVE",
+            account_id=session.identity_account_id,
+        )
+        db.delete(session)
+        db.commit()
         raise UnauthorizedError("登录账号已停用")
-    return _principal_from_account(db, account)
+    try:
+        return _principal_from_account(db, account)
+    except UnauthorizedError:
+        _record_security_event(
+            db,
+            event_type="AUTH_SESSION_REJECTED",
+            outcome="INVALID_PRINCIPAL",
+            account_id=session.identity_account_id,
+        )
+        db.delete(session)
+        db.commit()
+        raise
 
 
 def list_development_accounts(db: Session) -> list[IdentityAccount]:
@@ -122,6 +185,12 @@ def login_development_account(
     if not hmac.compare_digest(
         password.encode("utf-8"), settings.demo_login_password.encode("utf-8")
     ):
+        _record_security_event(
+            db,
+            event_type="AUTH_LOGIN",
+            outcome="REJECTED",
+        )
+        db.commit()
         raise UnauthorizedError("账号或密码错误")
     account = db.scalar(
         select(IdentityAccount).where(
@@ -131,6 +200,12 @@ def login_development_account(
         )
     )
     if account is None:
+        _record_security_event(
+            db,
+            event_type="AUTH_LOGIN",
+            outcome="REJECTED",
+        )
+        db.commit()
         raise UnauthorizedError("账号或密码错误")
     principal = _principal_from_account(db, account)
     token = secrets.token_urlsafe(32)
@@ -141,6 +216,14 @@ def login_development_account(
             token_hash=_token_hash(token),
             expires_at=expires_at,
         )
+    )
+    _record_security_event(
+        db,
+        event_type="AUTH_LOGIN",
+        outcome="SUCCEEDED",
+        account_id=account.id,
+        principal_type=principal.principal_type,
+        principal_id=principal.principal_id,
     )
     db.commit()
     return token, expires_at, principal
@@ -155,7 +238,13 @@ def revoke_auth_session(db: Session, authorization: str | None) -> None:
     )
     if session is None or session.revoked_at is not None:
         raise UnauthorizedError("登录已失效，请重新登录")
-    session.revoked_at = datetime.now(UTC)
+    _record_security_event(
+        db,
+        event_type="AUTH_LOGOUT",
+        outcome="SUCCEEDED",
+        account_id=session.identity_account_id,
+    )
+    db.delete(session)
     db.commit()
 
 

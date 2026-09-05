@@ -123,6 +123,38 @@ class AuthSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class SecurityAuditEvent(Base):
+    __tablename__ = "security_audit_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    event_type: Mapped[str] = mapped_column(String(80), index=True)
+    outcome: Mapped[str] = mapped_column(String(30), index=True)
+    account_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    principal_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    principal_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    trace_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    anonymized_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class RetentionRun(Base):
+    __tablename__ = "retention_runs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    policy_version: Mapped[str] = mapped_column(String(40))
+    as_of: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    status: Mapped[str] = mapped_column(String(30), index=True)
+    cutoffs: Mapped[dict] = mapped_column(JSON, default=dict)
+    deleted_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    anonymized_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
 class Order(Base):
     __tablename__ = "orders"
 

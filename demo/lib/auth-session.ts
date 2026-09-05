@@ -1,3 +1,5 @@
+import { clearLocalXianyuExperimentData } from './xianyu-local-lifecycle';
+
 export type AuthArea = 'customer' | 'staff';
 
 export type AuthPrincipal = {
@@ -6,7 +8,11 @@ export type AuthPrincipal = {
   principal_type: 'CUSTOMER' | 'OPERATOR';
   principal_id: string;
   display_name: string;
-  role: 'CUSTOMER' | 'SUPPORT_AGENT' | 'KNOWLEDGE_MANAGER' | 'OPERATIONS_MANAGER';
+  role:
+    | 'CUSTOMER'
+    | 'SUPPORT_AGENT'
+    | 'KNOWLEDGE_MANAGER'
+    | 'OPERATIONS_MANAGER';
 };
 
 export type AuthSessionData = {
@@ -22,13 +28,22 @@ const STORAGE_KEYS: Record<AuthArea, string> = {
 };
 
 const listeners = new Set<() => void>();
-const cache: Record<AuthArea, { raw: string | null; value: AuthSessionData | null }> = {
+const cache: Record<
+  AuthArea,
+  { raw: string | null; value: AuthSessionData | null }
+> = {
   customer: { raw: null, value: null },
   staff: { raw: null, value: null },
 };
 
 function expectedPrincipalType(area: AuthArea) {
   return area === 'customer' ? 'CUSTOMER' : 'OPERATOR';
+}
+
+function invalidateStoredSession(area: AuthArea): void {
+  if (area === 'staff') clearLocalXianyuExperimentData();
+  window.sessionStorage.removeItem(STORAGE_KEYS[area]);
+  cache[area] = { raw: null, value: null };
 }
 
 export function readAuthSession(area: AuthArea): AuthSessionData | null {
@@ -44,15 +59,13 @@ export function readAuthSession(area: AuthArea): AuthSessionData | null {
       session.principal?.principal_type !== expectedPrincipalType(area) ||
       Date.parse(session.expires_at) <= Date.now()
     ) {
-      window.sessionStorage.removeItem(STORAGE_KEYS[area]);
-      cache[area] = { raw: null, value: null };
+      invalidateStoredSession(area);
       return null;
     }
     cache[area] = { raw, value: session };
     return session;
   } catch {
-    window.sessionStorage.removeItem(STORAGE_KEYS[area]);
-    cache[area] = { raw: null, value: null };
+    invalidateStoredSession(area);
     return null;
   }
 }
@@ -66,6 +79,7 @@ export function storeAuthSession(area: AuthArea, session: AuthSessionData) {
 
 export function clearAuthSession(area: AuthArea) {
   if (typeof window !== 'undefined') {
+    if (area === 'staff') clearLocalXianyuExperimentData();
     window.sessionStorage.removeItem(STORAGE_KEYS[area]);
     cache[area] = { raw: null, value: null };
     listeners.forEach((listener) => listener());

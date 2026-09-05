@@ -1,9 +1,9 @@
 import hashlib
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from serviceops.models import AuthSession
+from serviceops.models import AuthSession, SecurityAuditEvent
 
 
 def login(client, login_name: str, password: str = "serviceops") -> dict:
@@ -50,6 +50,17 @@ def test_customer_login_issues_hashed_revocable_session(client, db) -> None:
     assert stored is not None
     assert stored.token_hash == hashlib.sha256(token.encode()).hexdigest()
     assert token != stored.token_hash
+    login_audit = db.scalar(
+        select(SecurityAuditEvent).where(
+            SecurityAuditEvent.event_type == "AUTH_LOGIN",
+            SecurityAuditEvent.outcome == "SUCCEEDED",
+        )
+    )
+    assert login_audit is not None
+    assert login_audit.account_id == stored.identity_account_id
+    assert login_audit.principal_type == "CUSTOMER"
+    assert login_audit.principal_id == payload["principal"]["principal_id"]
+    assert login_audit.trace_id is None
 
     auth_me = client.get("/api/auth/me", headers=bearer(token))
     customer_me = client.get("/api/me", headers=bearer(token))
@@ -61,9 +72,16 @@ def test_customer_login_issues_hashed_revocable_session(client, db) -> None:
     logout = client.post("/api/auth/logout", headers=bearer(token))
     assert logout.status_code == 200
     assert client.get("/api/me", headers=bearer(token)).status_code == 401
+    assert db.scalar(select(func.count(AuthSession.id))) == 0
+    logout_audit = db.scalar(
+        select(SecurityAuditEvent).where(SecurityAuditEvent.event_type == "AUTH_LOGOUT")
+    )
+    assert logout_audit is not None
+    assert logout_audit.outcome == "SUCCEEDED"
+    assert token not in str(logout_audit)
 
 
-def test_wrong_password_returns_generic_authentication_error(client) -> None:
+def test_wrong_password_returns_generic_authentication_error(client, db) -> None:
     response = client.post(
         "/api/auth/login",
         json={"login_name": "linmu", "password": "wrong-password"},
@@ -71,6 +89,12 @@ def test_wrong_password_returns_generic_authentication_error(client) -> None:
 
     assert response.status_code == 401
     assert response.json()["error"]["message"] == "账号或密码错误"
+    audit = db.scalar(
+        select(SecurityAuditEvent).where(SecurityAuditEvent.event_type == "AUTH_LOGIN")
+    )
+    assert audit is not None
+    assert audit.outcome == "REJECTED"
+    assert "wrong-password" not in str(audit)
 
 
 def test_expired_session_is_rejected(client, db) -> None:
@@ -83,6 +107,34 @@ def test_expired_session_is_rejected(client, db) -> None:
     response = client.get("/api/me", headers=bearer(token))
     assert response.status_code == 401
     assert response.json()["error"]["message"] == "登录已过期，请重新登录"
+    assert db.scalar(select(func.count(AuthSession.id))) == 0
+    audit = db.scalar(
+        select(SecurityAuditEvent).where(
+            SecurityAuditEvent.event_type == "AUTH_SESSION_REJECTED"
+        )
+    )
+    assert audit is not None
+    assert audit.outcome == "EXPIRED"
+
+
+def test_revoked_session_is_deleted_and_audited(client, db) -> None:
+    token = login(client, "linmu")["access_token"]
+    session = db.scalar(select(AuthSession))
+    assert session is not None
+    session.revoked_at = datetime.now(UTC)
+    db.commit()
+
+    response = client.get("/api/me", headers=bearer(token))
+    assert response.status_code == 401
+    assert response.json()["error"]["message"] == "登录已失效，请重新登录"
+    assert db.scalar(select(func.count(AuthSession.id))) == 0
+    audit = db.scalar(
+        select(SecurityAuditEvent).where(
+            SecurityAuditEvent.event_type == "AUTH_SESSION_REJECTED"
+        )
+    )
+    assert audit is not None
+    assert audit.outcome == "REVOKED"
 
 
 def test_customer_and_staff_roles_are_enforced_server_side(client) -> None:

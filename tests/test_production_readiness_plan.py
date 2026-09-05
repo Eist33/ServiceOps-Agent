@@ -49,7 +49,7 @@ def test_production_plan_defines_xianyu_local_read_only_experiment() -> None:
     text = PLAN.read_text(encoding="utf-8")
 
     required_sections = (
-        "阶段 9B：闲鱼个人账号本地只读实验（待实施）",
+        "阶段 9B：闲鱼个人账号本地只读实验（进行中；9B-1～9B-4 已完成本地模拟验收）",
         "阶段 9B-1：可见登录与本地会话边界",
         "阶段 9B-2：聊天列表只读映射",
         "阶段 9B-3：会话详情只读映射",
@@ -84,3 +84,17 @@ def test_production_plan_records_xianyu_pilot_decisions_and_retention() -> None:
         "模型完整输入输出在脱敏后最多保存 30 天",
     ):
         assert decision in text
+
+
+def test_production_plan_links_the_9b4_lifecycle_delivery() -> None:
+    text = PLAN.read_text(encoding="utf-8")
+
+    for requirement in (
+        "阶段 9B-4：账号切换、删除和保留期限（已完成本地模拟验收，2026-09-05）",
+        "统一的当前标签页实验数据清理",
+        "security_audit_events",
+        "retention_runs",
+        "purge-retention",
+        "《9B-4：账号切换、删除和保留期限》",
+    ):
+        assert requirement in text

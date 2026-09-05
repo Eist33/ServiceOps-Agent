@@ -32,13 +32,11 @@ import {
   readLocalXianyuChatList,
   readStoredLocalXianyuChatList,
   subscribeLocalXianyuChatList,
-  clearLocalXianyuChatList,
   writeLocalXianyuChatList,
   type XianyuChatListReadFailure,
   type XianyuChatListReadSuccess,
 } from '@/lib/xianyu-chat-list';
 import {
-  clearLocalXianyuChatDetail,
   getLocalXianyuChatDetailPage,
   readLocalXianyuChatDetail,
   readStoredLocalXianyuChatDetail,
@@ -48,10 +46,13 @@ import {
   type XianyuChatDetailReadSuccess,
 } from '@/lib/xianyu-chat-detail';
 import {
+  clearLocalXianyuExperimentData,
+  clearLocalXianyuPageCaches,
+} from '@/lib/xianyu-local-lifecycle';
+import {
   XIANYU_EXPERIMENT_NOTICE,
   XIANYU_LOCAL_FIXTURES,
   XIANYU_OFFICIAL_PAGE_URL,
-  clearLocalXianyuConnection,
   createLocalXianyuConnection,
   markXianyuReauthRequired,
   readLocalXianyuConnection,
@@ -108,8 +109,7 @@ export default function XianyuChannelClient() {
       return;
     }
     setError('');
-    clearLocalXianyuChatList();
-    clearLocalXianyuChatDetail();
+    clearLocalXianyuExperimentData();
     setChatFailure(null);
     setChatDetailFailure(null);
     const next = createLocalXianyuConnection(fixtureId);
@@ -125,7 +125,7 @@ export default function XianyuChannelClient() {
       return;
     const next = markXianyuReauthRequired(connectedConnection);
     writeLocalXianyuConnection(next);
-    clearLocalXianyuChatDetail();
+    clearLocalXianyuPageCaches();
     setChatDetailFailure(null);
     setChatFailure(null);
     setError(
@@ -135,9 +135,7 @@ export default function XianyuChannelClient() {
   }
 
   function reauthenticate() {
-    clearLocalXianyuConnection();
-    clearLocalXianyuChatList();
-    clearLocalXianyuChatDetail();
+    clearLocalXianyuExperimentData();
     setChatFailure(null);
     setChatDetailFailure(null);
     setConsent(false);
@@ -146,9 +144,7 @@ export default function XianyuChannelClient() {
   }
 
   function disconnect() {
-    clearLocalXianyuConnection();
-    clearLocalXianyuChatList();
-    clearLocalXianyuChatDetail();
+    clearLocalXianyuExperimentData();
     setChatFailure(null);
     setChatDetailFailure(null);
     setConsent(false);

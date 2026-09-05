@@ -1,9 +1,11 @@
 import argparse
 import json
+from datetime import UTC, datetime
 
 from serviceops.agent.evaluation import evaluate_agent_orchestration
 from serviceops.database import SessionLocal
 from serviceops.knowledge.evaluation import evaluate_knowledge_search
+from serviceops.retention.service import purge_expired_data
 from serviceops.seed import seed_database
 
 
@@ -35,11 +37,28 @@ def evaluate_agent(
     return 0 if report["passed"] else 1
 
 
+def purge_retention(*, as_of: datetime | None = None) -> int:
+    with SessionLocal() as db:
+        report = purge_expired_data(db, as_of=as_of)
+    print(json.dumps(report.as_dict(), ensure_ascii=False, indent=2))
+    return 0
+
+
+def parse_as_of(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("--as-of 必须是 ISO-8601 时间") from exc
+    if parsed.tzinfo is None:
+        raise argparse.ArgumentTypeError("--as-of 必须包含时区")
+    return parsed.astimezone(UTC)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="ServiceOps Agent maintenance commands")
     parser.add_argument(
         "command",
-        choices=("seed", "evaluate-knowledge", "evaluate-agent"),
+        choices=("seed", "evaluate-knowledge", "evaluate-agent", "purge-retention"),
         default="seed",
         nargs="?",
     )
@@ -61,6 +80,12 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="Delay between real model cases; defaults to configured RPM spacing",
     )
+    parser.add_argument(
+        "--as-of",
+        type=parse_as_of,
+        default=None,
+        help="Retention evaluation time as ISO-8601 with timezone; defaults to now",
+    )
     args = parser.parse_args(argv)
     if args.command == "evaluate-knowledge":
         return evaluate_knowledge()
@@ -70,6 +95,8 @@ def main(argv: list[str] | None = None) -> int:
             max_cases=args.max_cases,
             delay_seconds=args.delay_seconds,
         )
+    if args.command == "purge-retention":
+        return purge_retention(as_of=args.as_of)
     seed()
     return 0
 

@@ -18,6 +18,7 @@ from serviceops.models import (
     Operator,
     Order,
     RefundRequest,
+    SecurityAuditEvent,
     ShippingEvent,
     Ticket,
     TicketEvent,
@@ -264,6 +265,7 @@ def reset_demo_state(db: Session) -> None:
     """Reset mutable demo state and restore fixed knowledge fixtures."""
     for model in [
         IdempotencyRecord,
+        SecurityAuditEvent,
         ModelInvocation,
         ToolInvocation,
         RefundRequest,
