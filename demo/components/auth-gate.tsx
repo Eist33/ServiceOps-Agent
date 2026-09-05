@@ -23,6 +23,7 @@ import {
 import type { AuthArea, AuthSessionData } from '@/lib/auth-session';
 import { clearLocalXianyuConnection } from '@/lib/xianyu-local-session';
 import { clearLocalXianyuChatList } from '@/lib/xianyu-chat-list';
+import { clearLocalXianyuChatDetail } from '@/lib/xianyu-chat-detail';
 
 const roleLabels: Record<string, string> = {
   CUSTOMER: '客户',
@@ -115,6 +116,7 @@ function LoginSurface({ area }: { area: AuthArea }) {
       if (area === 'staff') {
         clearLocalXianyuConnection();
         clearLocalXianyuChatList();
+        clearLocalXianyuChatDetail();
       }
       saveSession(session);
     } catch (caught) {

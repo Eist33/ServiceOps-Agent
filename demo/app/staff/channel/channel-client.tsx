@@ -38,6 +38,16 @@ import {
   type XianyuChatListReadSuccess,
 } from '@/lib/xianyu-chat-list';
 import {
+  clearLocalXianyuChatDetail,
+  getLocalXianyuChatDetailPage,
+  readLocalXianyuChatDetail,
+  readStoredLocalXianyuChatDetail,
+  subscribeLocalXianyuChatDetail,
+  writeLocalXianyuChatDetail,
+  type XianyuChatDetailReadFailure,
+  type XianyuChatDetailReadSuccess,
+} from '@/lib/xianyu-chat-detail';
+import {
   XIANYU_EXPERIMENT_NOTICE,
   XIANYU_LOCAL_FIXTURES,
   XIANYU_OFFICIAL_PAGE_URL,
@@ -63,15 +73,32 @@ export default function XianyuChannelClient() {
     readStoredLocalXianyuChatList,
     () => null,
   );
+  const storedChatDetail = useSyncExternalStore(
+    subscribeLocalXianyuChatDetail,
+    readStoredLocalXianyuChatDetail,
+    () => null,
+  );
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [chatFailure, setChatFailure] =
     useState<XianyuChatListReadFailure | null>(null);
+  const [chatDetailFailure, setChatDetailFailure] =
+    useState<XianyuChatDetailReadFailure | null>(null);
 
   const chatList =
     connection && storedChatList?.connection_id === connection.connection_id
       ? storedChatList
+      : null;
+  const chatDetail =
+    connection &&
+    chatList &&
+    storedChatDetail?.connection_id === connection.connection_id &&
+    chatList.conversations.some(
+      (conversation) =>
+        conversation.conversation_id === storedChatDetail.conversation_id,
+    )
+      ? storedChatDetail
       : null;
 
   function connectLocalFixture(fixtureId: XianyuFixtureId) {
@@ -82,7 +109,9 @@ export default function XianyuChannelClient() {
     }
     setError('');
     clearLocalXianyuChatList();
+    clearLocalXianyuChatDetail();
     setChatFailure(null);
+    setChatDetailFailure(null);
     const next = createLocalXianyuConnection(fixtureId);
     writeLocalXianyuConnection(next);
     setNotice(
@@ -96,6 +125,8 @@ export default function XianyuChannelClient() {
       return;
     const next = markXianyuReauthRequired(connectedConnection);
     writeLocalXianyuConnection(next);
+    clearLocalXianyuChatDetail();
+    setChatDetailFailure(null);
     setChatFailure(null);
     setError(
       '当前页面或账号状态无法确认，连接已失败关闭；请由用户重新完成可见登录。',
@@ -106,7 +137,9 @@ export default function XianyuChannelClient() {
   function reauthenticate() {
     clearLocalXianyuConnection();
     clearLocalXianyuChatList();
+    clearLocalXianyuChatDetail();
     setChatFailure(null);
+    setChatDetailFailure(null);
     setConsent(false);
     setError('旧连接已清除。请重新阅读实验告知，再开始一次可见登录。');
     setNotice('');
@@ -115,7 +148,9 @@ export default function XianyuChannelClient() {
   function disconnect() {
     clearLocalXianyuConnection();
     clearLocalXianyuChatList();
+    clearLocalXianyuChatDetail();
     setChatFailure(null);
+    setChatDetailFailure(null);
     setConsent(false);
     setError('');
     setNotice('已退出并清除本地连接数据。');
@@ -140,6 +175,40 @@ export default function XianyuChannelClient() {
       return;
     }
     setChatFailure(result);
+    setNotice('');
+    setError(result.error_message);
+  }
+
+  function openChatDetail(conversationId: string) {
+    if (!connection || connection.status !== 'CONNECTED' || !chatList) return;
+    const fixture = XIANYU_LOCAL_FIXTURES.find(
+      (item) => item.display_identifier === connection.display_identifier,
+    );
+    if (!fixture) return;
+
+    const result = readLocalXianyuChatDetail(
+      connection,
+      chatList,
+      conversationId,
+      getLocalXianyuChatDetailPage(fixture.id, conversationId),
+      {
+        isConnectionStillValid: () => {
+          const current = readLocalXianyuConnection();
+          return (
+            current?.connection_id === connection.connection_id &&
+            current.status === 'CONNECTED'
+          );
+        },
+      },
+    );
+    if (result.result === 'SUCCESS') {
+      writeLocalXianyuChatDetail(result);
+      setChatDetailFailure(null);
+      setError('');
+      setNotice(`已读取会话 ${conversationId} 的最近消息。`);
+      return;
+    }
+    setChatDetailFailure(result);
     setNotice('');
     setError(result.error_message);
   }
@@ -289,8 +358,16 @@ export default function XianyuChannelClient() {
           <ChatListPanel
             connection={connection}
             failure={chatFailure}
+            onOpenDetail={openChatDetail}
             onRefresh={refreshChatList}
             snapshot={chatList}
+          />
+        )}
+        {connection?.status === 'CONNECTED' && chatList && (
+          <ChatDetailPanel
+            connection={connection}
+            failure={chatDetailFailure}
+            snapshot={chatDetail}
           />
         )}
       </div>
@@ -301,11 +378,13 @@ export default function XianyuChannelClient() {
 function ChatListPanel({
   connection,
   failure,
+  onOpenDetail,
   onRefresh,
   snapshot,
 }: {
   connection: XianyuLocalConnection;
   failure: XianyuChatListReadFailure | null;
+  onOpenDetail: (conversationId: string) => void;
   onRefresh: () => void;
   snapshot: XianyuChatListReadSuccess | null;
 }) {
@@ -321,7 +400,7 @@ function ChatListPanel({
             </CardTitle>
             <CardDescription className="mt-2 max-w-2xl leading-5">
               首版只支持手动刷新当前本地固定页面，最多显示最近 20
-              个会话；不会打开会话详情、发送消息或操作订单。
+              个会话；点击会话只读取最近历史消息，不发送消息或操作订单。
             </CardDescription>
           </div>
           <Badge className="bg-slate-100 text-slate-700" variant="secondary">
@@ -398,61 +477,173 @@ function ChatListPanel({
               {snapshot.conversations.map((conversation) => (
                 <li
                   aria-label={`聊天会话 ${conversation.nickname ?? 'UNKNOWN'}`}
-                  className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between"
                   key={conversation.conversation_id}
                 >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span
-                      aria-label={`头像 ${conversation.avatar_ref ?? 'UNKNOWN'}`}
-                      className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
-                    >
-                      {(conversation.nickname ?? 'U').slice(0, 1)}
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="truncate text-sm font-semibold">
-                          {conversation.nickname ?? 'UNKNOWN'}
+                  <button
+                    aria-label={`查看聊天会话 ${conversation.nickname ?? 'UNKNOWN'}`}
+                    className="flex w-full flex-col gap-3 p-4 text-left transition hover:bg-slate-50 sm:flex-row sm:items-center sm:justify-between"
+                    onClick={() => onOpenDetail(conversation.conversation_id)}
+                    type="button"
+                  >
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        aria-label={`头像 ${conversation.avatar_ref ?? 'UNKNOWN'}`}
+                        className="grid size-10 shrink-0 place-items-center rounded-full bg-primary/10 text-sm font-semibold text-primary"
+                      >
+                        {(conversation.nickname ?? 'U').slice(0, 1)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold">
+                            {conversation.nickname ?? 'UNKNOWN'}
+                          </p>
+                          {conversation.is_pinned === true && (
+                            <Badge
+                              className="gap-1 bg-amber-50 text-amber-800"
+                              variant="secondary"
+                            >
+                              <Pin className="size-3" /> 置顶
+                            </Badge>
+                          )}
+                          {conversation.is_muted === true && (
+                            <Badge
+                              className="gap-1 bg-slate-100 text-slate-700"
+                              variant="secondary"
+                            >
+                              <VolumeX className="size-3" /> 静音
+                            </Badge>
+                          )}
+                        </div>
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
+                          {conversation.last_message_summary ?? 'UNKNOWN'}
                         </p>
-                        {conversation.is_pinned === true && (
-                          <Badge
-                            className="gap-1 bg-amber-50 text-amber-800"
-                            variant="secondary"
-                          >
-                            <Pin className="size-3" /> 置顶
-                          </Badge>
-                        )}
-                        {conversation.is_muted === true && (
-                          <Badge
-                            className="gap-1 bg-slate-100 text-slate-700"
-                            variant="secondary"
-                          >
-                            <VolumeX className="size-3" /> 静音
-                          </Badge>
-                        )}
                       </div>
-                      <p className="mt-1 truncate text-xs text-muted-foreground">
-                        {conversation.last_message_summary ?? 'UNKNOWN'}
-                      </p>
                     </div>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground sm:flex-col sm:items-end sm:gap-1">
-                    <span>
-                      {conversation.last_message_at
-                        ? new Date(conversation.last_message_at).toLocaleString(
-                            'zh-CN',
-                          )
-                        : 'UNKNOWN'}
-                    </span>
-                    <span className="font-medium text-foreground">
-                      未读：{conversation.unread_count ?? 'UNKNOWN'}
-                    </span>
-                  </div>
+                    <div className="flex shrink-0 items-center gap-3 text-xs text-muted-foreground sm:flex-col sm:items-end sm:gap-1">
+                      <span>
+                        {conversation.last_message_at
+                          ? new Date(
+                              conversation.last_message_at,
+                            ).toLocaleString('zh-CN')
+                          : 'UNKNOWN'}
+                      </span>
+                      <span className="font-medium text-foreground">
+                        未读：{conversation.unread_count ?? 'UNKNOWN'}
+                      </span>
+                    </div>
+                  </button>
                 </li>
               ))}
             </ul>
             <p className="text-xs leading-5 text-muted-foreground">
-              结果绑定当前连接 ID；字段无法识别时显示
-              UNKNOWN，不猜测、不合并其他账号数据。
+              点击会话只读取当前连接下的本地固定历史消息。结果绑定当前连接
+              ID；字段无法识别时显示 UNKNOWN，不猜测、不合并其他账号数据。
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function ChatDetailPanel({
+  connection,
+  failure,
+  snapshot,
+}: {
+  connection: XianyuLocalConnection;
+  failure: XianyuChatDetailReadFailure | null;
+  snapshot: XianyuChatDetailReadSuccess | null;
+}) {
+  return (
+    <Card aria-label="闲鱼会话详情只读映射">
+      <CardHeader className="border-b">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <CardTitle className="flex items-center gap-2">
+              <MessageSquareText className="size-5 text-primary" />
+              会话详情（只读实验）
+            </CardTitle>
+            <CardDescription className="mt-2 max-w-2xl leading-5">
+              只显示当前已确认会话的最近一段历史消息。文本和系统消息可读；图片、商品卡片、订单卡片及其他类型显示受控占位，不下载附件。
+            </CardDescription>
+          </div>
+          <Badge className="bg-slate-100 text-slate-700" variant="secondary">
+            当前标签页 · 只读
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4 pt-5">
+        {failure && (
+          <div
+            className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+            role="alert"
+          >
+            <p className="font-semibold">本次详情读取失败，未保存本次结果</p>
+            <p className="mt-1 text-xs leading-5">{failure.error_message}</p>
+            {snapshot && (
+              <p className="mt-2 text-xs leading-5">
+                上一份已确认的会话详情仍保留，未被失败结果覆盖。
+              </p>
+            )}
+          </div>
+        )}
+
+        {!snapshot ? (
+          <p className="rounded-xl border border-dashed p-6 text-center text-sm text-muted-foreground">
+            点击上方聊天列表中的会话，读取当前连接下的最近历史消息。
+          </p>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>
+                已读取 {snapshot.messages.length} 条消息
+                {snapshot.truncated ? '（历史已截断）' : ''}
+              </span>
+              <span>
+                会话：{snapshot.conversation_id} · 读取时间：
+                {new Date(snapshot.read_at).toLocaleString('zh-CN')}
+              </span>
+            </div>
+            <ul
+              aria-label={`会话 ${snapshot.conversation_id} 的消息历史`}
+              className="space-y-3"
+            >
+              {snapshot.messages.map((message) => (
+                <li
+                  aria-label={`消息 ${message.message_id}`}
+                  className={`rounded-xl border p-4 ${message.sender === 'SELF' ? 'ml-8 bg-primary/5' : message.sender === 'SYSTEM' ? 'bg-slate-50' : 'mr-8 bg-white'}`}
+                  key={message.message_id}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {message.sender === 'SELF'
+                        ? '我方'
+                        : message.sender === 'OTHER'
+                          ? '对方'
+                          : message.sender === 'SYSTEM'
+                            ? '系统'
+                            : 'UNKNOWN'}
+                      {' · '}
+                      {message.message_type}
+                    </span>
+                    <span>
+                      {message.sent_at
+                        ? new Date(message.sent_at).toLocaleString('zh-CN')
+                        : 'UNKNOWN'}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6">
+                    {message.text ?? message.placeholder ?? 'UNKNOWN'}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs leading-5 text-muted-foreground">
+              详情绑定当前连接 ID：{connection.connection_id.slice(0, 8)}…
+              和会话
+              ID；当前版本没有发送、自动回复、附件下载、商品/订单、发货、关单或退款入口。模型不接收浏览器会话、Cookie
+              或页面控制权。
             </p>
           </div>
         )}
