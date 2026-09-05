@@ -41,12 +41,32 @@ test('支持坐席可在本地固定页面完成连接、刷新恢复和退出�
   await expect(page.getByText('请先阅读并同意实验告知')).toBeVisible();
   await page.getByLabel('同意闲鱼本地实验告知').check();
   await page.getByRole('button', { name: '连接本地模拟账号 A' }).click();
-  await expect(page.getByText('本地模拟账号 A', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByLabel('闲鱼实验连接')
+      .getByText('本地模拟账号 A', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('已连接（本地）', { exact: true })).toBeVisible();
   await expect(page.getByText('最后同步时间', { exact: true })).toBeVisible();
   await expect(
+    page.getByText('聊天列表（只读实验）', { exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole('button', { name: '手动刷新聊天列表' }),
+  ).toBeVisible();
+  await expect(
     page.getByRole('button', { name: '退出并清除本地连接' }),
   ).toBeVisible();
+
+  await page.getByRole('button', { name: '手动刷新聊天列表' }).click();
+  await expect(
+    page.getByText('已读取 5 个会话', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('晨光手作', { exact: true })).toBeVisible();
+  await expect(page.getByText('未读：2', { exact: true })).toBeVisible();
+  await expect(page.getByText('置顶', { exact: true })).toBeVisible();
+  await expect(page.getByText('静音', { exact: true })).toHaveCount(2);
+  await expect(page.getByText('UNKNOWN', { exact: true })).toBeVisible();
 
   const stored = await page.evaluate((key) => {
     const raw = sessionStorage.getItem(key);
@@ -63,8 +83,16 @@ test('支持坐席可在本地固定页面完成连接、刷新恢复和退出�
   );
 
   await page.reload();
-  await expect(page.getByText('本地模拟账号 A', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByLabel('闲鱼实验连接')
+      .getByText('本地模拟账号 A', { exact: true }),
+  ).toBeVisible();
   await expect(page.getByText('已连接（本地）', { exact: true })).toBeVisible();
+  await expect(
+    page.getByText('已读取 5 个会话', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('晨光手作', { exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: '页面/身份不确定' }).click();
   await expect(page.getByText('需要重新登录', { exact: true })).toBeVisible();
@@ -75,7 +103,18 @@ test('支持坐席可在本地固定页面完成连接、刷新恢复和退出�
   await expect(page.getByText('旧连接已清除')).toBeVisible();
   await page.getByLabel('同意闲鱼本地实验告知').check();
   await page.getByRole('button', { name: '连接本地模拟账号 B' }).click();
-  await expect(page.getByText('本地模拟账号 B', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByLabel('闲鱼实验连接')
+      .getByText('本地模拟账号 B', { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText('尚未读取当前页面的聊天列表')).toBeVisible();
+  await page.getByRole('button', { name: '手动刷新聊天列表' }).click();
+  await expect(
+    page.getByText('已读取 3 个会话', { exact: false }),
+  ).toBeVisible();
+  await expect(page.getByText('远山来信', { exact: true })).toBeVisible();
+  await expect(page.getByText('晨光手作', { exact: true })).toHaveCount(0);
   await expect(page.getByText('本地模拟账号 A', { exact: true })).toHaveCount(
     0,
   );
@@ -112,7 +151,15 @@ test('后台登出和重新登录会清除旧的本地连接', async ({ page }) 
   await loginSupportAgent(page, '沈清禾');
   await page.getByLabel('同意闲鱼本地实验告知').check();
   await page.getByRole('button', { name: '连接本地模拟账号 A' }).click();
-  await expect(page.getByText('本地模拟账号 A', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByLabel('闲鱼实验连接')
+      .getByText('本地模拟账号 A', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '手动刷新聊天列表' }).click();
+  await expect(
+    page.getByText('已读取 5 个会话', { exact: false }),
+  ).toBeVisible();
 
   await page.getByRole('button', { name: '退出客服后台' }).click();
   await expect(
@@ -129,13 +176,24 @@ test('后台登出和重新登录会清除旧的本地连接', async ({ page }) 
   await expect(page.getByText('本地模拟账号 A', { exact: true })).toHaveCount(
     0,
   );
+  await expect(
+    page.getByText('聊天列表（只读实验）', { exact: true }),
+  ).toHaveCount(0);
 });
 
 test('本地连接仅存在当前浏览器标签页', async ({ context, page }) => {
   await loginSupportAgent(page);
   await page.getByLabel('同意闲鱼本地实验告知').check();
   await page.getByRole('button', { name: '连接本地模拟账号 A' }).click();
-  await expect(page.getByText('本地模拟账号 A', { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByLabel('闲鱼实验连接')
+      .getByText('本地模拟账号 A', { exact: true }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: '手动刷新聊天列表' }).click();
+  await expect(
+    page.getByText('已读取 5 个会话', { exact: false }),
+  ).toBeVisible();
 
   const otherTab = await context.newPage();
   try {

@@ -22,6 +22,7 @@ import {
 } from '@/lib/api';
 import type { AuthArea, AuthSessionData } from '@/lib/auth-session';
 import { clearLocalXianyuConnection } from '@/lib/xianyu-local-session';
+import { clearLocalXianyuChatList } from '@/lib/xianyu-chat-list';
 
 const roleLabels: Record<string, string> = {
   CUSTOMER: '客户',
@@ -111,7 +112,10 @@ function LoginSurface({ area }: { area: AuthArea }) {
       if (session.principal.principal_type !== expectedType) {
         throw new Error('所选账号不能进入当前区域');
       }
-      if (area === 'staff') clearLocalXianyuConnection();
+      if (area === 'staff') {
+        clearLocalXianyuConnection();
+        clearLocalXianyuChatList();
+      }
       saveSession(session);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '登录失败');
