@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const API_BASE_URL = 'http://127.0.0.1:8100';
+const API_BASE_URL =
+  process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8100';
 const WORKFLOW_KEY = 'harbor-support-xianyu-local-reply-workflow';
 
 async function loginSupportAgent(page: Page) {

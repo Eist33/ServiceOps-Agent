@@ -18,7 +18,7 @@ services:
     environment:
       APP_ENV: development
       DATABASE_URL: postgresql+psycopg://serviceops_e2e:serviceops_e2e@postgres:5432/serviceops_e2e
-      WEB_ORIGIN: http://127.0.0.1:3100
+      WEB_ORIGIN: http://web:3000,http://127.0.0.1:3100
       AGENT_MODE: deterministic
       DEMO_MODE_ENABLED: "true"
       API_DOCS_ENABLED: "true"
@@ -40,7 +40,7 @@ services:
     build:
       context: ./demo
       args:
-        NEXT_PUBLIC_API_URL: http://127.0.0.1:8100
+        NEXT_PUBLIC_API_URL: http://api:8000
     depends_on:
       api:
         condition: service_healthy
@@ -51,3 +51,18 @@ services:
       retries: 30
     ports:
       - "3100:3000"
+
+  e2e:
+    build:
+      context: ./demo
+      dockerfile: Dockerfile.e2e
+      args:
+        NEXT_PUBLIC_API_URL: http://api:8000
+    environment:
+      E2E_EXTERNAL_SERVER: "true"
+      E2E_API_BASE_URL: http://api:8000
+      E2E_WEB_BASE_URL: http://web:3000
+    depends_on:
+      web:
+        condition: service_healthy
+    command: ["pnpm", "test:e2e"]

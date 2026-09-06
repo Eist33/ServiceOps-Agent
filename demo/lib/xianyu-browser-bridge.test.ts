@@ -44,7 +44,7 @@ function message(overrides: Record<string, unknown> = {}) {
   };
 }
 
-test('workbench bridge accepts only local user-controlled draft envelopes', () => {
+void test('workbench bridge accepts only local user-controlled draft envelopes', () => {
   const parsed = parseXianyuExtensionDraftMessage(message());
   assert.ok(parsed);
   assert.equal(parsed.draft.body, '本地草稿');
@@ -52,7 +52,7 @@ test('workbench bridge accepts only local user-controlled draft envelopes', () =
   assert.equal(isCurrentXianyuExtensionContext(parsed, context), true);
 });
 
-test('bridge rejects source, context, sensitive text, and extra fields', () => {
+void test('bridge rejects source, context, sensitive text, and extra fields', () => {
   assert.equal(
     parseXianyuExtensionDraftMessage({ ...message(), source: 'wrong' }),
     null,

@@ -7,3 +7,23 @@ services:
     volumes:
       - ./browser-extension:/workspace:ro
     command: ["node", "--test", "test/*.test.js"]
+
+  extension-fixture:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    volumes:
+      - ./browser-extension:/workspace:ro
+    command: ["node", "test/fixture-server.js"]
+    ports:
+      - "4173:4173"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4173/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 15

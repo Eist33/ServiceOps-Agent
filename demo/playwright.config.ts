@@ -7,8 +7,10 @@ const python = isWindows ? '..\\..\\.venv\\Scripts\\python.exe' : 'python';
 const vinext = isWindows
   ? 'node_modules\\.bin\\vinext.cmd'
   : 'node_modules/.bin/vinext';
-const apiBaseUrl = 'http://127.0.0.1:8100';
-const webBaseUrl = 'http://127.0.0.1:3100';
+const apiBaseUrl =
+  process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8100';
+const webBaseUrl =
+  process.env.E2E_WEB_BASE_URL ?? 'http://127.0.0.1:3100';
 const databasePath = join(tmpdir(), `serviceops-e2e-${process.pid}.db`).replaceAll(
   '\\',
   '/',

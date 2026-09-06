@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 
-const API_BASE_URL = 'http://127.0.0.1:8100';
+const API_BASE_URL =
+  process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8100';
 
 async function sendNaturalLanguage(page: Page, content: string) {
   await page.getByLabel('输入售后问题').fill(content);

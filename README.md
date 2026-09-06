@@ -192,11 +192,14 @@ scripts\verify-release.cmd --cold-start
 
 ```bash
 docker compose -f docker-compose.extension.yml config --quiet
+docker compose -f docker-compose.extension.yml up -d --wait extension-fixture
+docker compose -f docker-compose.extension.yml ps
 docker compose -f docker-compose.extension.yml run --rm extension-contract
-docker compose -f docker-compose.e2e.yml up -d --build --wait
+docker compose -f docker-compose.extension.yml down -v --remove-orphans
+docker compose -f docker-compose.e2e.yml up -d --build --wait postgres api web
 docker compose -f docker-compose.e2e.yml ps
 docker compose -f docker-compose.e2e.yml exec -T api python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
-docker compose -f docker-compose.e2e.yml run --rm web pnpm test:e2e
+docker compose -f docker-compose.e2e.yml run --rm --build e2e pnpm test:e2e
 docker compose -f docker-compose.e2e.yml down -v --remove-orphans
 ```
 
