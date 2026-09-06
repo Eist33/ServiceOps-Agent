@@ -17,6 +17,7 @@ import zipfile
 import zlib
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 from xml.etree import ElementTree
@@ -127,6 +128,20 @@ def _filename_metadata(filename: str) -> tuple[str, str]:
             "只支持 Markdown、TXT、PDF 和 DOCX 文件",
         )
     return safe_name, SUPPORTED_EXTENSIONS[extension]
+
+
+def _scope_value(value: str, *, field: str, wildcard: bool = True) -> str:
+    normalized = value.strip()
+    if not normalized or len(normalized) > 120:
+        raise KnowledgePipelineError(
+            "KNOWLEDGE_SCOPE_INVALID",
+            f"{field} 范围标识不能为空且不能超过 120 个字符",
+        )
+    if not wildcard and normalized == "*":
+        raise KnowledgePipelineError("KNOWLEDGE_SCOPE_INVALID", f"{field} 不允许使用通配范围")
+    if any(character in normalized for character in "\r\n\x00"):
+        raise KnowledgePipelineError("KNOWLEDGE_SCOPE_INVALID", f"{field} 范围标识包含非法字符")
+    return normalized
 
 
 def _line_records(text: str) -> list[tuple[str, int, int]]:
@@ -533,11 +548,21 @@ def ingest_document(
     data: bytes,
     idempotency_key: str | None = None,
     owner: str = "knowledge-operations",
+    tenant_scope: str = "local-demo",
+    channel_scope: str = "*",
+    product_scope: str = "*",
+    valid_from: datetime | None = None,
+    valid_until: datetime | None = None,
 ) -> IngestResult:
     """Ingest bytes idempotently and persist only parsed, traceable chunks."""
 
     safe_uri, source_type = _safe_source_uri(source_uri)
     safe_name, media_type = _filename_metadata(filename)
+    tenant = _scope_value(tenant_scope, field="tenant_scope", wildcard=False)
+    channel = _scope_value(channel_scope, field="channel_scope")
+    product = _scope_value(product_scope, field="product_scope")
+    if valid_from and valid_until and valid_until <= valid_from:
+        raise KnowledgePipelineError("KNOWLEDGE_VALIDITY_INVALID", "知识有效期结束时间必须晚于开始时间")
     if not isinstance(data, bytes) or not data:
         raise KnowledgePipelineError("DOCUMENT_EMPTY", "文档内容为空")
     if len(data) > MAX_DOCUMENT_BYTES:
@@ -551,7 +576,15 @@ def ingest_document(
         else None
     )
     if existing_by_key:
-        if existing_by_key.source_uri != safe_uri or existing_by_key.content_hash != content_hash:
+        if (
+            existing_by_key.source_uri != safe_uri
+            or existing_by_key.content_hash != content_hash
+            or existing_by_key.tenant_scope != tenant
+            or existing_by_key.channel_scope != channel
+            or existing_by_key.product_scope != product
+            or existing_by_key.valid_from != valid_from
+            or existing_by_key.valid_until != valid_until
+        ):
             raise ConflictError("KNOWLEDGE_IDEMPOTENCY_CONFLICT", "幂等键已经绑定到其他文档")
         if existing_by_key.status != "FAILED":
             return IngestResult(existing_by_key, duplicate=True, retried=False)
@@ -568,6 +601,17 @@ def ingest_document(
             select(KnowledgeDocument).where(KnowledgeDocument.content_hash == content_hash)
         )
         if duplicate:
+            if (
+                duplicate.tenant_scope != tenant
+                or duplicate.channel_scope != channel
+                or duplicate.product_scope != product
+                or duplicate.valid_from != valid_from
+                or duplicate.valid_until != valid_until
+            ):
+                raise ConflictError(
+                    "KNOWLEDGE_CONTENT_SCOPE_CONFLICT",
+                    "相同内容已经绑定到其他知识范围",
+                )
             return IngestResult(duplicate, duplicate=True, retried=False)
         source = db.scalar(select(KnowledgeSource).where(KnowledgeSource.source_uri == safe_uri))
         if source is None:
@@ -592,6 +636,11 @@ def ingest_document(
             status="PARSING",
             idempotency_key=key,
             supersedes_document_id=supersedes.id if supersedes else None,
+            tenant_scope=tenant,
+            channel_scope=channel,
+            product_scope=product,
+            valid_from=valid_from,
+            valid_until=valid_until,
         )
         db.add(document)
         db.flush()
@@ -625,6 +674,11 @@ def ingest_document(
                     start_offset=draft.start_offset,
                     end_offset=draft.end_offset,
                     source_uri=safe_uri,
+                    tenant_scope=tenant,
+                    channel_scope=channel,
+                    product_scope=product,
+                    valid_from=valid_from,
+                    valid_until=valid_until,
                 )
                 for draft in drafts
             ]

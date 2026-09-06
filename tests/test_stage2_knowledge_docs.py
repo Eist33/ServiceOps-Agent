@@ -44,12 +44,11 @@ def test_stage2_docs_and_readme_expose_only_operator_contract():
     assert "不保存原始文件" in document
 
 
-def test_stage2_implementation_has_no_external_io_or_stage3_retrieval():
+def test_stage2_ingestion_has_no_external_io_or_stage3_retrieval():
     sources = "\n".join(
         (ROOT / path).read_text(encoding="utf-8")
         for path in (
             "apps/api/src/serviceops/knowledge/ingestion.py",
-            "apps/api/src/serviceops/knowledge/releases.py",
         )
     ).lower()
 

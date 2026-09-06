@@ -35,6 +35,9 @@ from serviceops.identity.service import (
     revoke_auth_session,
 )
 from serviceops.integrations.commerce import build_default_commerce_registry
+from serviceops.knowledge.embedding_pipeline import embed_knowledge_release
+from serviceops.knowledge.embeddings import EmbeddingProviderError, build_embedding_provider
+from serviceops.knowledge.fusion import search_hybrid_knowledge
 from serviceops.knowledge.ingestion import (
     decode_base64_document,
     ingest_document,
@@ -55,6 +58,7 @@ from serviceops.knowledge.releases import (
     publish_knowledge_release,
     rollback_knowledge_release,
 )
+from serviceops.knowledge.vector import search_vector_candidates
 from serviceops.models import Customer, KnowledgeChunk, Operator
 from serviceops.observability import log_request_event, normalize_trace_id
 from serviceops.operations.service import (
@@ -86,10 +90,14 @@ from serviceops.shared.schemas import (
     KnowledgeChunkResponse,
     KnowledgeDocumentIngestRequest,
     KnowledgeDocumentResponse,
+    KnowledgeEmbeddingBatchResponse,
+    KnowledgeEmbeddingRequest,
+    KnowledgeHybridSearchRequest,
     KnowledgePublishRequest,
     KnowledgeReleaseCreateRequest,
     KnowledgeReleaseResponse,
     KnowledgeReleaseRollbackRequest,
+    KnowledgeSearchResponse,
     MessageRequest,
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
@@ -396,6 +404,11 @@ def create_app() -> FastAPI:
             data=content,
             idempotency_key=body.idempotency_key,
             owner=operator.name,
+            tenant_scope=body.tenant_scope,
+            channel_scope=body.channel_scope,
+            product_scope=body.product_scope,
+            valid_from=body.valid_from,
+            valid_until=body.valid_until,
         )
         return result.document
 
@@ -446,6 +459,7 @@ def create_app() -> FastAPI:
             created_by=operator.name,
             git_commit=body.git_commit,
             evaluation_dataset_version=body.evaluation_dataset_version,
+            retrieval_strategy_version=body.retrieval_strategy_version,
         )
 
     @app.post(
@@ -480,6 +494,77 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_knowledge_manager),
     ):
         return publish_knowledge_release(db, release_id)
+
+    @app.post(
+        "/api/ops/knowledge/releases/{release_id}/embeddings",
+        response_model=KnowledgeEmbeddingBatchResponse,
+    )
+    def knowledge_release_embeddings(
+        release_id: str,
+        body: KnowledgeEmbeddingRequest,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        provider = build_embedding_provider(body.provider)
+        return embed_knowledge_release(
+            db,
+            release_id,
+            provider=provider,
+            batch_size=body.batch_size,
+        )
+
+    @app.post(
+        "/api/ops/knowledge/search",
+        response_model=KnowledgeSearchResponse,
+    )
+    def knowledge_search(
+        body: KnowledgeHybridSearchRequest,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        provider = None
+        provider_error: EmbeddingProviderError | None = None
+        try:
+            provider = build_embedding_provider(body.provider)
+        except EmbeddingProviderError as error:
+            provider_error = error
+            if body.strategy == "vector_v1":
+                raise
+        if body.strategy == "vector_v1":
+            candidates = search_vector_candidates(
+                db,
+                body.query,
+                provider=provider,
+                strategy=body.strategy,
+                tenant_scope=body.tenant_scope,
+                channel_scope=body.channel_scope,
+                product_scope=body.product_scope,
+                now=body.now,
+                limit=body.limit,
+            )
+            score = candidates[0]["relevance"] if candidates else 0.0
+            return {
+                "strategy": "vector_v1",
+                "confident": bool(candidates),
+                "score": score,
+                "results": candidates,
+                "fallback": False,
+                "fallback_reason": None,
+                "release_version": candidates[0]["release_version"] if candidates else None,
+                "provider": provider.provider if provider else None,
+            }
+        return search_hybrid_knowledge(
+            db,
+            body.query,
+            provider=provider,
+            provider_error=provider_error,
+            tenant_scope=body.tenant_scope,
+            channel_scope=body.channel_scope,
+            product_scope=body.product_scope,
+            now=body.now,
+            limit=body.limit,
+            strategy=body.strategy,
+        )
 
     @app.post(
         "/api/ops/knowledge/releases/{release_id}/rollback",

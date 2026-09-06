@@ -28,6 +28,7 @@ from serviceops.models import (
 from serviceops.shared.errors import ConflictError, DomainError, NotFoundError, ValidationError
 
 RETRIEVAL_STRATEGY_VERSION = "lexical_v1"
+SUPPORTED_RETRIEVAL_STRATEGIES = frozenset({"lexical_v1", "vector_v1", "hybrid_rrf_v1"})
 RELEASE_EVALUATION_DATASET_VERSION = KNOWLEDGE_DATASET_VERSION
 RELEASE_STATUSES = frozenset(
     {"DRAFT", "EVALUATED", "REJECTED", "APPROVED", "PUBLISHED", "RETIRED", "ROLLED_BACK"}
@@ -110,6 +111,7 @@ def create_knowledge_release(
     created_by: str,
     git_commit: str = "unbound",
     evaluation_dataset_version: str = RELEASE_EVALUATION_DATASET_VERSION,
+    retrieval_strategy_version: str = RETRIEVAL_STRATEGY_VERSION,
 ) -> KnowledgeRelease:
     version = release_version.strip()
     actor = created_by.strip()
@@ -120,6 +122,8 @@ def create_knowledge_release(
         raise ValidationError("KNOWLEDGE_RELEASE_ACTOR_REQUIRED", "知识快照必须记录创建人")
     if len(commit) > 64:
         raise ValidationError("KNOWLEDGE_RELEASE_COMMIT_INVALID", "关联提交标识过长")
+    if retrieval_strategy_version not in SUPPORTED_RETRIEVAL_STRATEGIES:
+        raise ValidationError("KNOWLEDGE_RETRIEVAL_STRATEGY_UNSUPPORTED", "不支持的知识检索策略版本")
     if evaluation_dataset_version.strip() != RELEASE_EVALUATION_DATASET_VERSION:
         raise KnowledgeReleaseError(
             "KNOWLEDGE_EVALUATION_DATASET_UNSUPPORTED",
@@ -143,8 +147,11 @@ def create_knowledge_release(
         status="DRAFT",
         parser_version=PARSER_VERSION,
         chunking_version=CHUNKING_VERSION,
-        retrieval_strategy_version=RETRIEVAL_STRATEGY_VERSION,
+        retrieval_strategy_version=retrieval_strategy_version,
         evaluation_dataset_version=RELEASE_EVALUATION_DATASET_VERSION,
+        embedding_status=(
+            "NOT_REQUIRED" if retrieval_strategy_version == RETRIEVAL_STRATEGY_VERSION else "NOT_READY"
+        ),
         source_manifest=[
             {
                 "document_id": document.id,
@@ -153,6 +160,11 @@ def create_knowledge_release(
                 "content_hash": document.content_hash,
                 "byte_size": document.byte_size,
                 "chunk_count": document.chunk_count,
+                "tenant_scope": document.tenant_scope,
+                "channel_scope": document.channel_scope,
+                "product_scope": document.product_scope,
+                "valid_from": document.valid_from.isoformat() if document.valid_from else None,
+                "valid_until": document.valid_until.isoformat() if document.valid_until else None,
             }
             for document in documents
         ],
@@ -271,6 +283,14 @@ def publish_knowledge_release(db: Session, release_id: str) -> KnowledgeRelease:
         return release
     if release.status != "APPROVED":
         raise KnowledgeReleaseError("KNOWLEDGE_RELEASE_NOT_APPROVED", "只有已审核快照才能发布")
+    if (
+        release.retrieval_strategy_version != RETRIEVAL_STRATEGY_VERSION
+        and release.embedding_status != "READY"
+    ):
+        raise KnowledgeReleaseError(
+            "KNOWLEDGE_RELEASE_EMBEDDING_NOT_READY",
+            "vector_v1 或 hybrid_rrf_v1 快照必须先完成 embedding",
+        )
     now = _now()
     previous = list(
         db.scalars(

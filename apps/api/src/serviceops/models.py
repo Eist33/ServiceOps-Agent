@@ -249,6 +249,11 @@ class KnowledgeDocument(Base):
     supersedes_document_id: Mapped[str | None] = mapped_column(
         ForeignKey("knowledge_documents.id"), nullable=True
     )
+    tenant_scope: Mapped[str] = mapped_column(String(120), default="local-demo")
+    channel_scope: Mapped[str] = mapped_column(String(80), default="*")
+    product_scope: Mapped[str] = mapped_column(String(120), default="*")
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     page_count: Mapped[int] = mapped_column(Integer, default=0)
     block_count: Mapped[int] = mapped_column(Integer, default=0)
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
@@ -278,6 +283,9 @@ class KnowledgeChunk(Base):
     start_offset: Mapped[int] = mapped_column(Integer)
     end_offset: Mapped[int] = mapped_column(Integer)
     source_uri: Mapped[str] = mapped_column(String(500))
+    tenant_scope: Mapped[str] = mapped_column(String(120), default="local-demo", index=True)
+    channel_scope: Mapped[str] = mapped_column(String(80), default="*", index=True)
+    product_scope: Mapped[str] = mapped_column(String(120), default="*", index=True)
     valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -309,6 +317,16 @@ class KnowledgeRelease(Base):
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    embedding_provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    embedding_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    embedding_dimensions: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    embedding_normalization_version: Mapped[str | None] = mapped_column(
+        String(40), nullable=True
+    )
+    embedding_status: Mapped[str] = mapped_column(String(30), default="NOT_REQUIRED")
+    embedding_batch_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_embedding_batches.id"), nullable=True
+    )
 
 
 class KnowledgeReleaseItem(Base):
@@ -333,6 +351,66 @@ class KnowledgeReleaseItem(Base):
     start_offset: Mapped[int] = mapped_column(Integer)
     end_offset: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeEmbeddingBatch(Base):
+    __tablename__ = "knowledge_embedding_batches"
+    __table_args__ = (
+        UniqueConstraint("idempotency_key", name="uq_knowledge_embedding_batch_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    release_id: Mapped[str] = mapped_column(ForeignKey("knowledge_releases.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(80))
+    model: Mapped[str] = mapped_column(String(120))
+    dimensions: Mapped[int] = mapped_column(Integer)
+    normalization_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), default="PENDING", index=True)
+    requested_count: Mapped[int] = mapped_column(Integer, default=0)
+    embedded_count: Mapped[int] = mapped_column(Integer, default=0)
+    reused_count: Mapped[int] = mapped_column(Integer, default=0)
+    failed_count: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_micros: Mapped[int] = mapped_column(Integer, default=0)
+    idempotency_key: Mapped[str] = mapped_column(String(180))
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeChunkEmbedding(Base):
+    __tablename__ = "knowledge_chunk_embeddings"
+    __table_args__ = (
+        UniqueConstraint(
+            "chunk_id",
+            "provider",
+            "model",
+            "dimensions",
+            "normalization_version",
+            name="uq_knowledge_chunk_embedding_variant",
+        ),
+        Index("ix_knowledge_chunk_embeddings_content_hash", "content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    chunk_id: Mapped[str] = mapped_column(ForeignKey("knowledge_chunks.id"), index=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey("knowledge_embedding_batches.id"), index=True)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    provider: Mapped[str] = mapped_column(String(80))
+    model: Mapped[str] = mapped_column(String(120))
+    dimensions: Mapped[int] = mapped_column(Integer)
+    normalization_version: Mapped[str] = mapped_column(String(40))
+    embedding: Mapped[list[float]] = mapped_column(EmbeddingType())
+    status: Mapped[str] = mapped_column(String(30), default="READY", index=True)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_micros: Mapped[int] = mapped_column(Integer, default=0)
+    attempt_count: Mapped[int] = mapped_column(Integer, default=1)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class Conversation(Base):

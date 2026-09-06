@@ -6,11 +6,14 @@ from pathlib import Path
 from serviceops.agent.evaluation import evaluate_agent_orchestration
 from serviceops.agent.release import governance_snapshot
 from serviceops.database import SessionLocal
+from serviceops.knowledge.embedding_pipeline import embed_knowledge_release
+from serviceops.knowledge.embeddings import EmbeddingProviderError, build_embedding_provider
 from serviceops.knowledge.evaluation import (
     EXPLORATORY_CASES,
     EXPLORATORY_DATASET_VERSION,
     evaluate_knowledge_search,
 )
+from serviceops.knowledge.fusion import search_hybrid_knowledge
 from serviceops.knowledge.ingestion import ingest_document, list_document_chunks, list_documents
 from serviceops.knowledge.releases import (
     approve_knowledge_release,
@@ -20,6 +23,7 @@ from serviceops.knowledge.releases import (
     publish_knowledge_release,
     rollback_knowledge_release,
 )
+from serviceops.knowledge.vector import search_vector_candidates
 from serviceops.retention.service import purge_expired_data
 from serviceops.seed import seed_database
 
@@ -78,7 +82,15 @@ def _json_model(value) -> dict:
     }
 
 
-def knowledge_ingest(*, file_path: str, source_uri: str, idempotency_key: str | None) -> int:
+def knowledge_ingest(
+    *,
+    file_path: str,
+    source_uri: str,
+    idempotency_key: str | None,
+    tenant_scope: str,
+    channel_scope: str,
+    product_scope: str,
+) -> int:
     with SessionLocal() as db:
         result = ingest_document(
             db,
@@ -86,6 +98,9 @@ def knowledge_ingest(*, file_path: str, source_uri: str, idempotency_key: str | 
             source_uri=source_uri,
             data=Path(file_path).read_bytes(),
             idempotency_key=idempotency_key,
+            tenant_scope=tenant_scope,
+            channel_scope=channel_scope,
+            product_scope=product_scope,
         )
     print(
         json.dumps(
@@ -120,6 +135,7 @@ def knowledge_release_create(
     release_version: str,
     document_ids: list[str],
     git_commit: str,
+    retrieval_strategy_version: str,
 ) -> int:
     with SessionLocal() as db:
         release = create_knowledge_release(
@@ -128,6 +144,7 @@ def knowledge_release_create(
             document_ids=document_ids,
             created_by="cli-knowledge-operations",
             git_commit=git_commit,
+            retrieval_strategy_version=retrieval_strategy_version,
         )
     print(json.dumps(_json_model(release), ensure_ascii=False, indent=2))
     return 0
@@ -166,6 +183,78 @@ def knowledge_releases() -> int:
     return 0
 
 
+def knowledge_embed(*, release_id: str, provider_name: str | None, batch_size: int | None) -> int:
+    provider = build_embedding_provider(provider_name)
+    with SessionLocal() as db:
+        batch = embed_knowledge_release(
+            db,
+            release_id,
+            provider=provider,
+            batch_size=batch_size,
+        )
+    print(json.dumps(_json_model(batch), ensure_ascii=False, indent=2))
+    return 0
+
+
+def knowledge_search(
+    *,
+    query: str,
+    tenant_scope: str,
+    channel_scope: str,
+    product_scope: str,
+    strategy: str,
+    provider_name: str | None,
+    limit: int,
+    now: datetime | None,
+) -> int:
+    provider = None
+    provider_error: EmbeddingProviderError | None = None
+    try:
+        provider = build_embedding_provider(provider_name)
+    except EmbeddingProviderError as error:
+        provider_error = error
+        if strategy == "vector_v1":
+            raise
+    with SessionLocal() as db:
+        if strategy == "vector_v1":
+            results = search_vector_candidates(
+                db,
+                query,
+                provider=provider,
+                strategy=strategy,
+                tenant_scope=tenant_scope,
+                channel_scope=channel_scope,
+                product_scope=product_scope,
+                now=now,
+                limit=limit,
+            )
+            report = {
+                "strategy": strategy,
+                "confident": bool(results),
+                "score": results[0]["relevance"] if results else 0.0,
+                "results": results,
+                "fallback": False,
+                "fallback_reason": None,
+                "release_version": results[0]["release_version"] if results else None,
+                "provider": provider.provider if provider else None,
+            }
+        else:
+            report = search_hybrid_knowledge(
+                db,
+                query,
+                provider=provider,
+                provider_error=provider_error,
+                tenant_scope=tenant_scope,
+                channel_scope=channel_scope,
+                product_scope=product_scope,
+                now=now,
+                limit=limit,
+                strategy=strategy,
+            )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def parse_as_of(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -195,6 +284,8 @@ def main(argv: list[str] | None = None) -> int:
             "knowledge-release-publish",
             "knowledge-release-rollback",
             "knowledge-releases",
+            "knowledge-embed",
+            "knowledge-search",
         ),
         default="seed",
         nargs="?",
@@ -230,12 +321,25 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--file", default=None, help="Local document path for knowledge-ingest")
     parser.add_argument("--source-uri", default=None, help="Controlled provenance URI")
+    parser.add_argument("--query", default=None, help="Knowledge retrieval query")
     parser.add_argument("--idempotency-key", default=None)
     parser.add_argument("--document-id", action="append", default=[])
     parser.add_argument("--release-id", default=None)
     parser.add_argument("--release-version", default=None)
     parser.add_argument("--target-release-id", default=None)
     parser.add_argument("--git-commit", default="unbound")
+    parser.add_argument("--tenant-scope", default="local-demo")
+    parser.add_argument("--channel-scope", default="*")
+    parser.add_argument("--product-scope", default="*")
+    parser.add_argument(
+        "--retrieval-strategy",
+        choices=("lexical_v1", "vector_v1", "hybrid_rrf_v1"),
+        default="lexical_v1",
+    )
+    parser.add_argument("--provider", default=None)
+    parser.add_argument("--batch-size", type=int, default=None)
+    parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--now", type=parse_as_of, default=None)
     args = parser.parse_args(argv)
     if args.command == "evaluate-knowledge":
         return evaluate_knowledge(include_exploratory=args.include_exploratory)
@@ -256,6 +360,9 @@ def main(argv: list[str] | None = None) -> int:
             file_path=args.file,
             source_uri=args.source_uri,
             idempotency_key=args.idempotency_key,
+            tenant_scope=args.tenant_scope,
+            channel_scope=args.channel_scope,
+            product_scope=args.product_scope,
         )
     if args.command == "knowledge-documents":
         return knowledge_documents()
@@ -270,6 +377,7 @@ def main(argv: list[str] | None = None) -> int:
             release_version=args.release_version,
             document_ids=args.document_id,
             git_commit=args.git_commit,
+            retrieval_strategy_version=args.retrieval_strategy,
         )
     if args.command in {
         "knowledge-release-evaluate",
@@ -288,6 +396,27 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "knowledge-releases":
         return knowledge_releases()
+    if args.command == "knowledge-embed":
+        if not args.release_id:
+            parser.error("knowledge-embed 需要 --release-id")
+        return knowledge_embed(
+            release_id=args.release_id,
+            provider_name=args.provider,
+            batch_size=args.batch_size,
+        )
+    if args.command == "knowledge-search":
+        if not args.query:
+            parser.error("knowledge-search 需要 --query")
+        return knowledge_search(
+            query=args.query,
+            tenant_scope=args.tenant_scope,
+            channel_scope=args.channel_scope,
+            product_scope=args.product_scope,
+            strategy=args.retrieval_strategy,
+            provider_name=args.provider,
+            limit=args.limit,
+            now=args.now,
+        )
     seed()
     return 0
 

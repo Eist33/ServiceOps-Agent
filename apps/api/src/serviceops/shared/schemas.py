@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -103,6 +103,11 @@ class KnowledgeDocumentIngestRequest(BaseModel):
     source_uri: str = Field(min_length=4, max_length=500)
     content_base64: str = Field(min_length=1, max_length=7_000_000)
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
+    tenant_scope: str = Field(default="local-demo", min_length=1, max_length=120)
+    channel_scope: str = Field(default="*", min_length=1, max_length=120)
+    product_scope: str = Field(default="*", min_length=1, max_length=120)
+    valid_from: datetime | None = None
+    valid_until: datetime | None = None
 
 
 class KnowledgeDocumentResponse(BaseModel):
@@ -122,6 +127,11 @@ class KnowledgeDocumentResponse(BaseModel):
     error_message: str | None
     idempotency_key: str | None
     supersedes_document_id: str | None
+    tenant_scope: str
+    channel_scope: str
+    product_scope: str
+    valid_from: datetime | None
+    valid_until: datetime | None
     page_count: int
     block_count: int
     chunk_count: int
@@ -143,6 +153,9 @@ class KnowledgeChunkResponse(BaseModel):
     start_offset: int
     end_offset: int
     source_uri: str
+    tenant_scope: str
+    channel_scope: str
+    product_scope: str
     valid_from: datetime | None
     valid_until: datetime | None
     created_at: datetime
@@ -157,6 +170,7 @@ class KnowledgeReleaseCreateRequest(BaseModel):
         min_length=2,
         max_length=100,
     )
+    retrieval_strategy_version: Literal["lexical_v1", "vector_v1", "hybrid_rrf_v1"] = "lexical_v1"
 
 
 class KnowledgeReleaseRollbackRequest(BaseModel):
@@ -184,6 +198,78 @@ class KnowledgeReleaseResponse(BaseModel):
     approved_at: datetime | None
     published_at: datetime | None
     rolled_back_at: datetime | None
+    embedding_provider: str | None
+    embedding_model: str | None
+    embedding_dimensions: int | None
+    embedding_normalization_version: str | None
+    embedding_status: str
+    embedding_batch_id: str | None
+
+
+class KnowledgeEmbeddingRequest(BaseModel):
+    provider: str | None = Field(default=None, min_length=2, max_length=80)
+    batch_size: int | None = Field(default=None, ge=1, le=128)
+
+
+class KnowledgeEmbeddingBatchResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    release_id: str
+    provider: str
+    model: str
+    dimensions: int
+    normalization_version: str
+    status: str
+    requested_count: int
+    embedded_count: int
+    reused_count: int
+    failed_count: int
+    attempts: int
+    input_tokens: int
+    cost_micros: int
+    idempotency_key: str
+    error_code: str | None
+    error_message: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeHybridSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    tenant_scope: str = Field(min_length=1, max_length=120)
+    channel_scope: str = Field(default="*", min_length=1, max_length=120)
+    product_scope: str = Field(default="*", min_length=1, max_length=120)
+    strategy: Literal["vector_v1", "hybrid_rrf_v1"] = "hybrid_rrf_v1"
+    provider: str | None = Field(default=None, min_length=2, max_length=80)
+    limit: int = Field(default=5, ge=1, le=20)
+    now: datetime | None = None
+
+
+class KnowledgeSearchResult(BaseModel):
+    chunk_id: str
+    document_id: str
+    release_id: str
+    release_version: str
+    content: str
+    source_uri: str
+    title_path: list[str]
+    page_number: int | None
+    relevance: float
+    vector_score: float | None = None
+    lexical_score: float | None = None
+    hybrid_score: float | None = None
+
+
+class KnowledgeSearchResponse(BaseModel):
+    strategy: str
+    confident: bool
+    score: float
+    results: list[KnowledgeSearchResult]
+    fallback: bool = False
+    fallback_reason: str | None = None
+    release_version: str | None = None
+    provider: str | None = None
 
 
 class OpsTicketSummary(BaseModel):

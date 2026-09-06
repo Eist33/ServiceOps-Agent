@@ -330,17 +330,11 @@ def test_knowledge_pipeline_api_preserves_role_boundary(client):
     assert response.json()["error"]["code"] == "KNOWLEDGE_EXTERNAL_SOURCE_FORBIDDEN"
 
 
-def test_stage2_code_does_not_enable_embedding_or_external_network_calls():
+def test_stage2_ingestion_does_not_enable_external_network_calls():
     root = Path(__file__).parents[3]
-    source = "\n".join(
-        (root / path).read_text(encoding="utf-8")
-        for path in (
-            "apps/api/src/serviceops/knowledge/ingestion.py",
-            "apps/api/src/serviceops/knowledge/releases.py",
-        )
+    source = (root / "apps/api/src/serviceops/knowledge/ingestion.py").read_text(
+        encoding="utf-8"
     )
     assert "fetch(" not in source
     assert "requests." not in source
     assert "WebSocket" not in source
-    assert "embedding" not in source.lower()
-    assert "rrf" not in source.lower()

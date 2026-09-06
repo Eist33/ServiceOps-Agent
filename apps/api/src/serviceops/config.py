@@ -32,6 +32,16 @@ class Settings(BaseSettings):
     # Legacy OpenAI-specific settings remain supported during migration.
     openai_model: str = "gpt-5.4-mini"
     openai_api_key: str | None = None
+    embedding_provider: str = "not_configured"
+    embedding_model: str = "text-embedding-3-small"
+    embedding_api_key: str | None = None
+    embedding_base_url: str = "https://api.openai.com/v1"
+    embedding_dimensions: int = 1536
+    embedding_batch_size: int = 32
+    embedding_max_retries: int = 2
+    embedding_requests_per_minute: int = 60
+    embedding_cost_per_1k_tokens: float = 0.0
+    embedding_normalization_version: str = "l2-v1"
     sensitive_tracing_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

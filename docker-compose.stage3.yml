@@ -1,0 +1,26 @@
+services:
+  api-test:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile.test
+    environment:
+      APP_ENV: development
+      DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
+      AGENT_MODE: deterministic
+      DEMO_MODE_ENABLED: "true"
+      API_DOCS_ENABLED: "true"
+      SENSITIVE_TRACING_ENABLED: "false"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command:
+      [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_embedding_hybrid_retrieval.py",
+        "tests/test_knowledge_ingestion_pipeline.py",
+        "tests/test_knowledge.py",
+        "tests/test_knowledge_evaluation.py",
+        "tests/test_knowledge_management_api.py",
+      ]

@@ -274,6 +274,12 @@ docker compose exec -T api python -m serviceops.cli knowledge-releases
 
 知识运营 API 为 `POST/GET /api/ops/knowledge/documents*` 和 `POST/GET /api/ops/knowledge/releases*`，必须使用 `KNOWLEDGE_MANAGER` 后台身份；客户和客服角色拒绝访问。完整输入输出、幂等/重复文件、失败关闭、快照状态流、Docker-only 命令和网页验收步骤见 [阶段 2：文档摄取、结构化切块与知识快照](docs/阶段2-文档摄取、结构化切块与知识快照.md)。阶段 2 不实现 embedding、向量召回、RRF 或外部文件/模型请求。
 
+### 阶段 3：真实 embedding 与混合检索
+
+阶段 3 为显式创建的 `vector_v1`/`hybrid_rrf_v1` 快照生成 1536 维、L2 规范化 embedding，并在 PostgreSQL/pgvector 中执行向量候选和 RRF 融合。默认 `EMBEDDING_PROVIDER=not_configured`，没有服务端 API key 时不伪称 provider 可用；development/test 可显式使用离线 `fixture` provider，production 禁止 fixture。已审核快照必须先完成 embedding 批次，维度、模型、规范化版本或内容哈希不一致时失败关闭。
+
+Stage 3 查询入口为知识运营专用 `POST /api/ops/knowledge/search`，必须明确 `tenant_scope`，并由服务端先过滤渠道、产品和生效期。provider 故障时仅在 `local-demo` 通配范围安全回退到既有 `lexical_v1`，不改变客服 Agent 默认词法行为；跨租户/未授权范围返回空结果。Docker-only embedding、vector/hybrid 输入输出、缓存/重试/成本、网页验收和失败判定见 [阶段 3：真实 embedding 与混合检索](docs/阶段3-真实Embedding与混合检索.md)；容器契约测试使用 `docker-compose.stage3.yml` 与独立测试镜像，不把生产 API 镜像当作测试镜像。阶段 3 不实现 reranker、检索 Trace、质量运营或 HyDE。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash
@@ -296,7 +302,7 @@ curl -X POST http://localhost:8000/api/demo/reset -H "X-Demo-Session: demo-linmu
 
 - 订单、物流和支付仍使用本地模拟数据。淘宝、小红书、闲鱼已具备统一只读协议、12 项官方适配器准入门禁和失败关闭桩，默认状态为 `NOT_CONFIGURED`、不会调用真实平台或产生真实资金动作；9B-1 的闲鱼连接、9B-2 的聊天列表、9B-3 的会话详情、9B-5 的人工审批回复工作流和 9B-6 的 Chrome/Edge 用户控制桥接也仅是本地固定页面模拟，不代表平台授权或官方接入；当前不读取真实页面、不自动发送消息、不下载附件、不执行商品或订单操作。9B-5/9B-6 的发送意图永远不是发送成功，用户必须在官方前台手动粘贴和发送。9C 正式适配器仍等待官方资质、授权协议、接口文档和沙箱账号。
 - 默认确定性运行器用于离线演示与稳定测试；DeepSeek 模型模式需要服务端 API Key。仓库永远不包含真实密钥；首次在一台电脑上部署时，需要在本机输入 Key 并完成受控联网验收。
-- MVP 使用小型知识集和轻量的中文概念/关键词混合召回；PostgreSQL 已启用 pgvector 扩展与向量字段，真实 embedding 管道留待评测显示现有召回不足且接入模型服务后启用。
+- MVP 使用小型知识集和轻量的中文概念/关键词混合召回；阶段 3 已提供显式知识运营触发的真实 embedding/pgvector 与 `hybrid_rrf_v1` 管道，但默认 provider 仍为 `not_configured`，客服 Agent 继续绑定可回滚的 `lexical_v1`。没有服务端 provider 配置、Docker PostgreSQL/pgvector 证据或人工审核时，不得把离线 fixture 结果描述为生产语义检索。
 - 当前已实现开发账号登录、会话过期/吊销和基础角色隔离；尚未接入企业 SSO、客服组织数据范围和排班。生产客户身份计划通过淘宝、小红书、闲鱼等平台的官方授权接口建立映射，不使用页面抓取或让模型决定客户归属。
 - 当前运营看板支持单实例内的实时主动告警，尚未接入短信、邮件、企业 IM 等外部通知渠道或长期数据仓库。
 - 9B-4 的本地实现不持久化原始解析失败材料、诊断快照或物理数据库备份，因此不会宣称已经完成备份删除传播；真实脱敏诊断、滚动备份和恢复后删除验证属于后续基础设施阶段。
