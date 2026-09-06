@@ -64,6 +64,20 @@ docker-compose.yml        web、api、PostgreSQL/pgvector
 docker compose up --build
 ```
 
+Windows 用户也可以直接双击新的 Docker 一键入口：
+
+```bat
+scripts\start-serviceops.cmd
+```
+
+它会检查 Docker Engine，执行 `docker compose up -d --build --wait`，核对 `postgres`、`api`、`web` 的 Compose healthcheck，并在成功后打开 <http://localhost:3000/staff/channel>。停止服务时双击：
+
+```bat
+scripts\stop-serviceops.cmd
+```
+
+停止入口只执行 `docker compose stop`，不会删除 `serviceops-postgres` 数据卷。路径包含空格、重复启动和重复停止均在脚本契约中覆盖；失败时脚本会提示 `docker compose ps` 与 `docker compose logs --tail=100 postgres api web`。完整双击、成功/失败预期和 Docker-only 验收见 [Docker 一键启动与停止](docs/Docker一键启动与停止.md)。
+
 Windows 用户也可以在 Docker Desktop 启动后直接运行：
 
 ```bat
