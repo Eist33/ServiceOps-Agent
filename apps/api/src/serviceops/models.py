@@ -363,6 +363,20 @@ class ModelInvocation(Base):
     provider: Mapped[str] = mapped_column(String(40))
     model_name: Mapped[str] = mapped_column(String(100))
     api_style: Mapped[str] = mapped_column(String(30))
+    agent_release_id: Mapped[str] = mapped_column(String(80), default="legacy-unbound")
+    agent_release_version: Mapped[str] = mapped_column(String(40), default="legacy-unbound")
+    prompt_version: Mapped[str] = mapped_column(String(80), default="legacy-unbound")
+    tool_schema_version: Mapped[str] = mapped_column(String(80), default="legacy-unbound")
+    knowledge_release_version: Mapped[str] = mapped_column(
+        String(80), default="legacy-unbound"
+    )
+    evaluation_dataset_version: Mapped[str] = mapped_column(
+        String(100), default="legacy-unbound"
+    )
+    context_policy_version: Mapped[str] = mapped_column(String(80), default="legacy-unbound")
+    context_token_count: Mapped[int] = mapped_column(Integer, default=0)
+    context_source_count: Mapped[int] = mapped_column(Integer, default=0)
+    context_truncated: Mapped[bool] = mapped_column(Boolean, default=False)
     status: Mapped[str] = mapped_column(String(30))
     duration_ms: Mapped[int] = mapped_column(default=0)
     input_tokens: Mapped[int] = mapped_column(default=0)

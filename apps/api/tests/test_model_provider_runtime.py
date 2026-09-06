@@ -206,6 +206,16 @@ def test_model_stream_persists_answer_and_metadata_only_audit(db):
     assert audit.status == "SUCCEEDED"
     assert audit.provider == "deepseek"
     assert audit.total_tokens == 27
+    assert audit.agent_release_id == "agent-support-v1"
+    assert audit.agent_release_version == "1.0.0"
+    assert audit.prompt_version == "support-prompt-v1"
+    assert audit.tool_schema_version == "customer-tools-v1"
+    assert audit.knowledge_release_version == "lexical_v1"
+    assert audit.evaluation_dataset_version == "agent-orchestration-release-gate-v1"
+    assert audit.context_policy_version == "context-governance-v1"
+    assert audit.context_source_count >= 2
+    assert audit.context_token_count > 0
+    assert audit.context_truncated is False
     assert not hasattr(audit, "input_summary")
     assert not hasattr(audit, "output_summary")
     assert "sk-test-secret" not in str(audit.__dict__)

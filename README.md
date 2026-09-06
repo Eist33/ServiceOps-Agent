@@ -48,6 +48,8 @@ apps/api/                 FastAPI 模块化单体
     tickets/ refunds/     状态机、审批与幂等
     workbench/            坐席队列、受理、处理记录与解决
     agent/                 确定性运行器、通用模型适配与 Agents SDK 流式运行器
+      release.py          Agent 发布、工具能力矩阵与兼容性绑定
+      context.py          上下文来源、预算、截断和敏感字段治理
     audit/                 工具与模型调用脱敏审计
 demo/                     Vinext/React 客户端（Sites 与 Docker 兼容）
 docs/                     产品、技术、流程与交付文档
@@ -247,6 +249,16 @@ docker compose exec -T api python -m serviceops.cli evaluate-knowledge --include
 ```
 
 阶段 0 不启用 embedding、RRF、重排、HyDE、文档摄取或外部模型请求。固定基线的输入、输出、信任边界、风险假设、未决项和 Docker-only 验收见 [阶段 0：冻结基线与决策](docs/阶段0-冻结基线与决策.md)。网页入口 <http://localhost:3000/staff/knowledge> 只展示现有条款版本；阶段 0 的机器指标以容器 CLI JSON 为准，不通过网页按钮修改基线或触发外部请求。
+
+### 阶段 1：模块边界、Agent 发布与上下文治理
+
+阶段 1 固定 `AgentRelease`、客户工具能力矩阵和上下文治理策略，并为模型运行审计绑定 Agent/Prompt/工具/知识/评测/上下文版本。治理状态不含 Prompt 正文、消息正文或任何凭据，可在 Docker 容器中查看：
+
+```bash
+docker compose exec -T api python -m serviceops.cli agent-governance
+```
+
+运营角色可读取同一份只读 JSON：`GET http://localhost:8000/api/ops/agent-governance`。客户和客服会话没有权限。上下文预算、来源/截断/敏感字段失败关闭、输入输出示例、回滚和完整 Docker-only 验收见 [阶段 1：模块边界、Agent 发布与上下文治理](docs/阶段1-模块边界、Agent发布与上下文治理.md)。阶段 1 不实现文档摄取、结构化切块、embedding、向量召回或 RRF。
 
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 

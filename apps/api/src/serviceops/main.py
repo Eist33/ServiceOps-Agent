@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from serviceops.agent.orchestrator import DeterministicSupportAgent
+from serviceops.agent.release import governance_snapshot
 from serviceops.config import get_settings
 from serviceops.conversations.service import (
     conversation_state,
@@ -381,6 +382,12 @@ def create_app() -> FastAPI:
             )
             for status in commerce_registry.statuses()
         ]
+
+    @app.get("/api/ops/agent-governance")
+    def agent_governance_status(
+        _operator: Operator = Depends(current_operations_operator),
+    ):
+        return governance_snapshot()
 
     @app.get("/api/ops/tickets", response_model=OpsTicketReportResponse)
     def ops_ticket_report(

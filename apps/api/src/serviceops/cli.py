@@ -3,6 +3,7 @@ import json
 from datetime import UTC, datetime
 
 from serviceops.agent.evaluation import evaluate_agent_orchestration
+from serviceops.agent.release import governance_snapshot
 from serviceops.database import SessionLocal
 from serviceops.knowledge.evaluation import (
     EXPLORATORY_CASES,
@@ -54,6 +55,11 @@ def purge_retention(*, as_of: datetime | None = None) -> int:
     return 0
 
 
+def agent_governance() -> int:
+    print(json.dumps(governance_snapshot(), ensure_ascii=False, indent=2))
+    return 0
+
+
 def parse_as_of(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -68,7 +74,13 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="ServiceOps Agent maintenance commands")
     parser.add_argument(
         "command",
-        choices=("seed", "evaluate-knowledge", "evaluate-agent", "purge-retention"),
+        choices=(
+            "seed",
+            "evaluate-knowledge",
+            "evaluate-agent",
+            "purge-retention",
+            "agent-governance",
+        ),
         default="seed",
         nargs="?",
     )
@@ -112,6 +124,8 @@ def main(argv: list[str] | None = None) -> int:
         )
     if args.command == "purge-retention":
         return purge_retention(as_of=args.as_of)
+    if args.command == "agent-governance":
+        return agent_governance()
     seed()
     return 0
 
