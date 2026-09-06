@@ -45,6 +45,13 @@ class Settings(BaseSettings):
     reranker_provider: str = "not_configured"
     reranker_model: str = "fixture-cross-encoder-v1"
     reranker_timeout_ms: int = 250
+    query_enhancement_enabled: bool = False
+    query_enhancement_provider: str = "not_configured"
+    query_enhancement_strategy: str = "rewrite_v1"
+    query_enhancement_config_version: str = "query_enhancement_v1"
+    query_enhancement_max_variants: int = 3
+    query_enhancement_timeout_ms: int = 150
+    query_enhancement_cost_budget_micros: int = 0
     sensitive_tracing_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

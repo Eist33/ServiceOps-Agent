@@ -49,6 +49,13 @@ from serviceops.knowledge.management import (
     list_knowledge_articles,
     publish_knowledge_article,
 )
+from serviceops.knowledge.query_enhancement import (
+    QueryEnhancementConfig,
+    QueryEnhancementProviderError,
+    build_query_enhancer,
+    evaluate_fixture_query_enhancement,
+    run_query_enhancement_experiment,
+)
 from serviceops.knowledge.releases import (
     approve_knowledge_release,
     create_knowledge_release,
@@ -106,6 +113,10 @@ from serviceops.shared.schemas import (
     KnowledgeEmbeddingRequest,
     KnowledgeHybridSearchRequest,
     KnowledgePublishRequest,
+    KnowledgeQueryEnhancementEvaluationRequest,
+    KnowledgeQueryEnhancementEvaluationResponse,
+    KnowledgeQueryEnhancementRequest,
+    KnowledgeQueryEnhancementResponse,
     KnowledgeReleaseCreateRequest,
     KnowledgeReleaseResponse,
     KnowledgeReleaseRollbackRequest,
@@ -685,6 +696,108 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_knowledge_manager),
     ):
         return retrieval_quality_report(db, window_hours=window_hours)
+
+    @app.post(
+        "/api/ops/knowledge/search-experiment",
+        response_model=KnowledgeQueryEnhancementResponse,
+    )
+    def knowledge_query_enhancement_experiment(
+        body: KnowledgeQueryEnhancementRequest,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        embedding_provider = None
+        embedding_error: EmbeddingProviderError | None = None
+        try:
+            embedding_provider = build_embedding_provider(body.embedding_provider)
+        except EmbeddingProviderError as error:
+            embedding_error = error
+
+        def search_variant(query: str) -> dict:
+            if body.retrieval_strategy == "vector_v1":
+                if embedding_error is not None or embedding_provider is None:
+                    if embedding_error is not None:
+                        raise embedding_error
+                    raise EmbeddingProviderError(
+                        "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+                        "embedding provider 未配置",
+                    )
+                candidates = search_vector_candidates(
+                    db,
+                    query,
+                    provider=embedding_provider,
+                    strategy=body.retrieval_strategy,
+                    tenant_scope=body.tenant_scope,
+                    channel_scope=body.channel_scope,
+                    product_scope=body.product_scope,
+                    now=body.now,
+                    limit=5,
+                )
+                return {
+                    "strategy": body.retrieval_strategy,
+                    "confident": bool(candidates),
+                    "score": candidates[0]["relevance"] if candidates else 0.0,
+                    "results": candidates,
+                    "fallback": False,
+                    "fallback_reason": None,
+                    "release_version": candidates[0]["release_version"] if candidates else None,
+                    "provider": embedding_provider.provider,
+                }
+            report = search_hybrid_knowledge(
+                db,
+                query,
+                provider=embedding_provider,
+                provider_error=embedding_error,
+                tenant_scope=body.tenant_scope,
+                channel_scope=body.channel_scope,
+                product_scope=body.product_scope,
+                now=body.now,
+                limit=5,
+                strategy=body.retrieval_strategy,
+            )
+            report["provider_model"] = (
+                embedding_provider.model if embedding_provider is not None else None
+            )
+            return report
+
+        enhancement_provider = None
+        enhancement_error: QueryEnhancementProviderError | None = None
+        if body.enabled:
+            try:
+                enhancement_provider = build_query_enhancer(body.enhancement_provider)
+            except QueryEnhancementProviderError as error:
+                enhancement_error = error
+        config = QueryEnhancementConfig(
+            enabled=body.enabled,
+            provider=body.enhancement_provider,
+            strategy=body.enhancement_strategy,
+            experiment_group=body.experiment_group,
+            max_variants=body.max_variants,
+        )
+        return run_query_enhancement_experiment(
+            body.query,
+            config=config,
+            search=search_variant,
+            provider=enhancement_provider,
+            provider_error=enhancement_error,
+        )
+
+    @app.post(
+        "/api/ops/knowledge/query-enhancement/evaluate",
+        response_model=KnowledgeQueryEnhancementEvaluationResponse,
+    )
+    def knowledge_query_enhancement_evaluate(
+        body: KnowledgeQueryEnhancementEvaluationRequest,
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        provider = build_query_enhancer(body.enhancement_provider)
+        config = QueryEnhancementConfig(
+            enabled=True,
+            provider=body.enhancement_provider,
+            strategy=body.enhancement_strategy,
+            max_variants=body.max_variants,
+        )
+        return evaluate_fixture_query_enhancement(config=config, provider=provider)
 
     @app.post(
         "/api/ops/knowledge/releases/{release_id}/rollback",

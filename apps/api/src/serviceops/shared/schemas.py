@@ -383,6 +383,57 @@ class KnowledgeRetrievalQualityResponse(BaseModel):
     external_requests_enabled: bool
 
 
+class KnowledgeQueryEnhancementRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2000)
+    tenant_scope: str = Field(min_length=1, max_length=120)
+    channel_scope: str = Field(default="*", min_length=1, max_length=120)
+    product_scope: str = Field(default="*", min_length=1, max_length=120)
+    retrieval_strategy: Literal["vector_v1", "hybrid_rrf_v1"] = "hybrid_rrf_v1"
+    embedding_provider: str | None = Field(default=None, min_length=2, max_length=80)
+    enhancement_provider: str = Field(default="not_configured", min_length=2, max_length=80)
+    enhancement_strategy: Literal["rewrite_v1", "hyde_v1", "multi_query_v1"] = "rewrite_v1"
+    enabled: bool = False
+    experiment_group: Literal["shadow"] = "shadow"
+    max_variants: int = Field(default=3, ge=1, le=5)
+    now: datetime | None = None
+
+
+class KnowledgeQueryEnhancementEvaluationRequest(BaseModel):
+    enhancement_provider: str = Field(default="fixture", min_length=2, max_length=80)
+    enhancement_strategy: Literal["rewrite_v1", "hyde_v1", "multi_query_v1"] = "rewrite_v1"
+    max_variants: int = Field(default=3, ge=1, le=5)
+
+
+class KnowledgeQueryEnhancementResponse(BaseModel):
+    experiment_id: str
+    config_version: str
+    provider: str
+    strategy: str
+    experiment_group: str
+    query_hash: str
+    query_length: int
+    control: dict[str, Any]
+    treatment: dict[str, Any]
+    guardrails: dict[str, Any]
+    decision: str
+    promotion_allowed: bool
+    production_strategy: str
+    external_requests_enabled: bool
+
+
+class KnowledgeQueryEnhancementEvaluationResponse(BaseModel):
+    dataset_version: str
+    config_version: str
+    provider: str
+    strategy: str
+    control: dict[str, Any]
+    treatment: dict[str, Any]
+    cases: list[dict[str, Any]]
+    promotion_allowed: bool
+    decision: str
+    external_requests_enabled: bool
+
+
 class OpsTicketSummary(BaseModel):
     total: int
     active: int

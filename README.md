@@ -292,6 +292,14 @@ docker compose -f docker-compose.yml -f docker-compose.stage3.yml run --rm api-t
 
 阶段 4 的 Docker-only 测试、输入输出、网页验收和失败判定见 [阶段 4：重排、检索追踪与质量运营](docs/阶段4-重排、检索追踪与质量运营.md)。Docker Engine 不可用或容器测试非零时，不能以宿主机 SQLite 结果替代；阶段 4 不实现阶段 5 的查询改写、HyDE 或 multi-query。
 
+### 阶段 5：受控查询增强实验
+
+阶段 5 只对已经由阶段 4 质量证据证明存在的召回缺口做离线/影子实验，提供独立且默认关闭的 `rewrite_v1`、`hyde_v1` 和 `multi_query_v1` 策略。control 始终先执行，treatment 复用同一租户、渠道、产品和有效期过滤；增强失败、拒答安全下降、实体漂移、延迟或成本超预算时回到原始查询。`lexical_v1`、`vector_v1` 和 `hybrid_rrf_v1` 的生产行为不改变，`promotion_allowed` 永远为 `false`。
+
+当前只有 development/test 的确定性离线 `fixture` provider，默认 `QUERY_ENHANCEMENT_PROVIDER=not_configured`、`QUERY_ENHANCEMENT_ENABLED=false`；不保存原始查询，只返回哈希/长度和脱敏候选摘要，不调用外部模型、闲鱼或隐藏接口。知识运营入口为 `POST /api/ops/knowledge/search-experiment` 和 `POST /api/ops/knowledge/query-enhancement/evaluate`，两者均要求 `KNOWLEDGE_MANAGER`，客户和客服角色不能访问。容器 CLI 为 `knowledge-search-experiment` 与 `knowledge-enhancement-evaluate`。
+
+阶段 5 的 Docker-only 测试、固定评测集、输入输出、自动停止门禁、网页/可见验收和失败判定见 [阶段 5：受控查询增强实验](docs/阶段5-受控查询增强实验.md)。Docker Engine 不可用或容器测试非零时，不能用宿主机结果冒充 Docker 证据；阶段 5 不实现阶段 6 的生产发布与持续治理。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

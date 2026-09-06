@@ -17,6 +17,14 @@ from serviceops.knowledge.evaluation import (
 )
 from serviceops.knowledge.fusion import search_hybrid_knowledge
 from serviceops.knowledge.ingestion import ingest_document, list_document_chunks, list_documents
+from serviceops.knowledge.query_enhancement import (
+    QueryEnhancementConfig,
+    QueryEnhancementProviderError,
+    build_query_enhancer,
+    config_from_settings,
+    evaluate_fixture_query_enhancement,
+    run_query_enhancement_experiment,
+)
 from serviceops.knowledge.releases import (
     approve_knowledge_release,
     create_knowledge_release,
@@ -309,6 +317,117 @@ def knowledge_quality(*, window_hours: int) -> int:
     return 0
 
 
+def knowledge_search_experiment(
+    *,
+    query: str,
+    tenant_scope: str,
+    channel_scope: str,
+    product_scope: str,
+    retrieval_strategy: str,
+    embedding_provider_name: str | None,
+    enhancement_provider_name: str,
+    enhancement_strategy: str,
+    enabled: bool,
+    max_variants: int,
+    now: datetime | None,
+) -> int:
+    embedding_provider = None
+    embedding_error: EmbeddingProviderError | None = None
+    try:
+        embedding_provider = build_embedding_provider(embedding_provider_name)
+    except EmbeddingProviderError as error:
+        embedding_error = error
+
+    with SessionLocal() as db:
+        def search_variant(search_query: str) -> dict:
+            if retrieval_strategy == "vector_v1":
+                if embedding_error is not None or embedding_provider is None:
+                    if embedding_error is not None:
+                        raise embedding_error
+                    raise EmbeddingProviderError(
+                        "EMBEDDING_PROVIDER_NOT_CONFIGURED",
+                        "embedding provider 未配置",
+                    )
+                candidates = search_vector_candidates(
+                    db,
+                    search_query,
+                    provider=embedding_provider,
+                    strategy=retrieval_strategy,
+                    tenant_scope=tenant_scope,
+                    channel_scope=channel_scope,
+                    product_scope=product_scope,
+                    now=now,
+                    limit=5,
+                )
+                return {
+                    "strategy": retrieval_strategy,
+                    "confident": bool(candidates),
+                    "score": candidates[0]["relevance"] if candidates else 0.0,
+                    "results": candidates,
+                    "fallback": False,
+                    "fallback_reason": None,
+                    "release_version": candidates[0]["release_version"] if candidates else None,
+                    "provider": embedding_provider.provider,
+                }
+            report = search_hybrid_knowledge(
+                db,
+                search_query,
+                provider=embedding_provider,
+                provider_error=embedding_error,
+                tenant_scope=tenant_scope,
+                channel_scope=channel_scope,
+                product_scope=product_scope,
+                now=now,
+                limit=5,
+                strategy=retrieval_strategy,
+            )
+            report["provider_model"] = (
+                embedding_provider.model if embedding_provider is not None else None
+            )
+            return report
+
+        enhancer = None
+        enhancement_error: QueryEnhancementProviderError | None = None
+        if enabled:
+            try:
+                enhancer = build_query_enhancer(enhancement_provider_name)
+            except QueryEnhancementProviderError as error:
+                enhancement_error = error
+        config = QueryEnhancementConfig(
+            enabled=enabled,
+            provider=enhancement_provider_name,
+            strategy=enhancement_strategy,
+            max_variants=max_variants,
+        )
+        report = run_query_enhancement_experiment(
+            query,
+            config=config,
+            search=search_variant,
+            provider=enhancer,
+            provider_error=enhancement_error,
+        )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def knowledge_enhancement_evaluate(
+    *,
+    provider_name: str,
+    strategy: str,
+    max_variants: int,
+) -> int:
+    provider = build_query_enhancer(provider_name)
+    config = config_from_settings(
+        provider=provider_name,
+        strategy=strategy,
+        enabled=True,
+        max_variants=max_variants,
+    )
+    report = evaluate_fixture_query_enhancement(config=config, provider=provider)
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
 def parse_as_of(value: str) -> datetime:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -340,6 +459,8 @@ def main(argv: list[str] | None = None) -> int:
             "knowledge-releases",
             "knowledge-embed",
             "knowledge-search",
+            "knowledge-search-experiment",
+            "knowledge-enhancement-evaluate",
             "knowledge-quality",
         ),
         default="seed",
@@ -393,6 +514,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--provider", default=None)
     parser.add_argument("--reranker", default=None)
+    parser.add_argument("--enhancement-provider", default="fixture")
+    parser.add_argument(
+        "--enhancement-strategy",
+        choices=("rewrite_v1", "hyde_v1", "multi_query_v1"),
+        default="rewrite_v1",
+    )
+    parser.add_argument("--enable-query-enhancement", action="store_true")
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--window-hours", type=int, default=24)
@@ -474,6 +602,28 @@ def main(argv: list[str] | None = None) -> int:
             reranker_name=args.reranker,
             limit=args.limit,
             now=args.now,
+        )
+    if args.command == "knowledge-search-experiment":
+        if not args.query:
+            parser.error("knowledge-search-experiment 需要 --query")
+        return knowledge_search_experiment(
+            query=args.query,
+            tenant_scope=args.tenant_scope,
+            channel_scope=args.channel_scope,
+            product_scope=args.product_scope,
+            retrieval_strategy=args.retrieval_strategy,
+            embedding_provider_name=args.provider,
+            enhancement_provider_name=args.enhancement_provider,
+            enhancement_strategy=args.enhancement_strategy,
+            enabled=args.enable_query_enhancement,
+            max_variants=args.limit,
+            now=args.now,
+        )
+    if args.command == "knowledge-enhancement-evaluate":
+        return knowledge_enhancement_evaluate(
+            provider_name=args.enhancement_provider,
+            strategy=args.enhancement_strategy,
+            max_variants=args.limit,
         )
     if args.command == "knowledge-quality":
         return knowledge_quality(window_hours=args.window_hours)
