@@ -98,6 +98,94 @@ class KnowledgeArticleResponse(BaseModel):
     created_at: datetime
 
 
+class KnowledgeDocumentIngestRequest(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    source_uri: str = Field(min_length=4, max_length=500)
+    content_base64: str = Field(min_length=1, max_length=7_000_000)
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=120)
+
+
+class KnowledgeDocumentResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    source_id: str
+    source_uri: str
+    filename: str
+    media_type: str
+    content_hash: str
+    byte_size: int
+    parser_version: str
+    chunking_version: str
+    status: str
+    error_code: str | None
+    error_message: str | None
+    idempotency_key: str | None
+    supersedes_document_id: str | None
+    page_count: int
+    block_count: int
+    chunk_count: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class KnowledgeChunkResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    document_id: str
+    chunk_index: int
+    content: str
+    content_hash: str
+    block_type: str
+    title_path: list[str]
+    page_number: int | None
+    start_offset: int
+    end_offset: int
+    source_uri: str
+    valid_from: datetime | None
+    valid_until: datetime | None
+    created_at: datetime
+
+
+class KnowledgeReleaseCreateRequest(BaseModel):
+    release_version: str = Field(min_length=2, max_length=80)
+    document_ids: list[str] = Field(min_length=1, max_length=100)
+    git_commit: str = Field(default="unbound", min_length=1, max_length=64)
+    evaluation_dataset_version: str = Field(
+        default="knowledge-baseline-30-v1",
+        min_length=2,
+        max_length=100,
+    )
+
+
+class KnowledgeReleaseRollbackRequest(BaseModel):
+    target_release_id: str = Field(min_length=1, max_length=36)
+
+
+class KnowledgeReleaseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    release_version: str
+    status: str
+    parser_version: str
+    chunking_version: str
+    retrieval_strategy_version: str
+    evaluation_dataset_version: str
+    evaluation_report: dict | None
+    source_manifest: list[dict]
+    git_commit: str
+    created_by: str
+    approved_by: str | None
+    rollback_release_id: str | None
+    created_at: datetime
+    evaluated_at: datetime | None
+    approved_at: datetime | None
+    published_at: datetime | None
+    rolled_back_at: datetime | None
+
+
 class OpsTicketSummary(BaseModel):
     total: int
     active: int

@@ -260,6 +260,20 @@ docker compose exec -T api python -m serviceops.cli agent-governance
 
 运营角色可读取同一份只读 JSON：`GET http://localhost:8000/api/ops/agent-governance`。客户和客服会话没有权限。上下文预算、来源/截断/敏感字段失败关闭、输入输出示例、回滚和完整 Docker-only 验收见 [阶段 1：模块边界、Agent 发布与上下文治理](docs/阶段1-模块边界、Agent发布与上下文治理.md)。阶段 1 不实现文档摄取、结构化切块、embedding、向量召回或 RRF。
 
+### 阶段 2：文档摄取、结构化切块与知识快照
+
+阶段 2 把知识运营人员明确提供的本地 Markdown/TXT、PDF 或 DOCX 字节解析为带来源、页码、标题路径、偏移和哈希的结构化切块，再通过评测、审核、发布和回滚形成不可变知识快照。来源 URI 只接受 `file://`、`fixture://`、`kb://` 或 `upload://`；系统不会根据 URI 下载文件，不保存原始文件，也不会改变现有 `KnowledgeArticle` 或 `lexical_v1` 检索行为。单文件上限为 5 MiB，切块上限为 1200 个字符。
+
+容器内可用无密 CLI 查看和操作阶段 2 状态：
+
+```bash
+docker compose exec -T api python -m serviceops.cli knowledge-documents
+docker compose exec -T api python -m serviceops.cli knowledge-preview --document-id <document-id>
+docker compose exec -T api python -m serviceops.cli knowledge-releases
+```
+
+知识运营 API 为 `POST/GET /api/ops/knowledge/documents*` 和 `POST/GET /api/ops/knowledge/releases*`，必须使用 `KNOWLEDGE_MANAGER` 后台身份；客户和客服角色拒绝访问。完整输入输出、幂等/重复文件、失败关闭、快照状态流、Docker-only 命令和网页验收步骤见 [阶段 2：文档摄取、结构化切块与知识快照](docs/阶段2-文档摄取、结构化切块与知识快照.md)。阶段 2 不实现 embedding、向量召回、RRF 或外部文件/模型请求。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

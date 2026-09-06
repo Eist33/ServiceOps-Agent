@@ -210,6 +210,131 @@ class KnowledgeArticle(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class KnowledgeSource(Base):
+    __tablename__ = "knowledge_sources"
+    __table_args__ = (
+        UniqueConstraint("source_uri", name="uq_knowledge_source_uri"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_uri: Mapped[str] = mapped_column(String(500))
+    source_type: Mapped[str] = mapped_column(String(30), default="upload")
+    owner: Mapped[str] = mapped_column(String(120), default="knowledge-operations")
+    trust_level: Mapped[str] = mapped_column(String(30), default="operator_reviewed")
+    authorization_scope: Mapped[str] = mapped_column(String(200), default="local-demo")
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeDocument(Base):
+    __tablename__ = "knowledge_documents"
+    __table_args__ = (
+        UniqueConstraint("content_hash", name="uq_knowledge_document_content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    source_id: Mapped[str] = mapped_column(ForeignKey("knowledge_sources.id"), index=True)
+    source_uri: Mapped[str] = mapped_column(String(500))
+    filename: Mapped[str] = mapped_column(String(255))
+    media_type: Mapped[str] = mapped_column(String(120))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    byte_size: Mapped[int] = mapped_column(Integer)
+    parser_version: Mapped[str] = mapped_column(String(40))
+    chunking_version: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), default="RECEIVED", index=True)
+    error_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    idempotency_key: Mapped[str | None] = mapped_column(String(120), nullable=True, unique=True)
+    supersedes_document_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_documents.id"), nullable=True
+    )
+    page_count: Mapped[int] = mapped_column(Integer, default=0)
+    block_count: Mapped[int] = mapped_column(Integer, default=0)
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_id",
+            "chunk_index",
+            name="uq_knowledge_chunk_document_index",
+        ),
+        Index("ix_knowledge_chunks_content_hash", "content_hash"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    chunk_index: Mapped[int] = mapped_column(Integer)
+    content: Mapped[str] = mapped_column(Text)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    block_type: Mapped[str] = mapped_column(String(30))
+    title_path: Mapped[list[str]] = mapped_column(JSON, default=list)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_offset: Mapped[int] = mapped_column(Integer)
+    end_offset: Mapped[int] = mapped_column(Integer)
+    source_uri: Mapped[str] = mapped_column(String(500))
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeRelease(Base):
+    __tablename__ = "knowledge_releases"
+    __table_args__ = (
+        UniqueConstraint("release_version", name="uq_knowledge_release_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    release_version: Mapped[str] = mapped_column(String(80))
+    status: Mapped[str] = mapped_column(String(30), default="DRAFT", index=True)
+    parser_version: Mapped[str] = mapped_column(String(40))
+    chunking_version: Mapped[str] = mapped_column(String(40))
+    retrieval_strategy_version: Mapped[str] = mapped_column(String(40), default="lexical_v1")
+    evaluation_dataset_version: Mapped[str] = mapped_column(String(100))
+    evaluation_report: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    source_manifest: Mapped[list[dict]] = mapped_column(JSON, default=list)
+    git_commit: Mapped[str] = mapped_column(String(64), default="unbound")
+    created_by: Mapped[str] = mapped_column(String(120))
+    approved_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    rollback_release_id: Mapped[str | None] = mapped_column(
+        ForeignKey("knowledge_releases.id"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    rolled_back_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class KnowledgeReleaseItem(Base):
+    __tablename__ = "knowledge_release_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "release_id",
+            "chunk_id",
+            name="uq_knowledge_release_item_chunk",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    release_id: Mapped[str] = mapped_column(ForeignKey("knowledge_releases.id"), index=True)
+    document_id: Mapped[str] = mapped_column(ForeignKey("knowledge_documents.id"), index=True)
+    chunk_id: Mapped[str] = mapped_column(ForeignKey("knowledge_chunks.id"), index=True)
+    ordinal: Mapped[int] = mapped_column(Integer)
+    content_hash: Mapped[str] = mapped_column(String(64))
+    source_uri: Mapped[str] = mapped_column(String(500))
+    title_path: Mapped[list[str]] = mapped_column(JSON, default=list)
+    page_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    start_offset: Mapped[int] = mapped_column(Integer)
+    end_offset: Mapped[int] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 

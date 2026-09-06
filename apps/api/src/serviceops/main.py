@@ -35,12 +35,27 @@ from serviceops.identity.service import (
     revoke_auth_session,
 )
 from serviceops.integrations.commerce import build_default_commerce_registry
+from serviceops.knowledge.ingestion import (
+    decode_base64_document,
+    ingest_document,
+    list_document_chunks,
+    list_documents,
+)
 from serviceops.knowledge.management import (
     deactivate_knowledge_article,
     list_knowledge_articles,
     publish_knowledge_article,
 )
-from serviceops.models import Customer, Operator
+from serviceops.knowledge.releases import (
+    approve_knowledge_release,
+    create_knowledge_release,
+    evaluate_knowledge_release,
+    list_release_items,
+    list_releases,
+    publish_knowledge_release,
+    rollback_knowledge_release,
+)
+from serviceops.models import Customer, KnowledgeChunk, Operator
 from serviceops.observability import log_request_event, normalize_trace_id
 from serviceops.operations.service import (
     acknowledge_operations_alert,
@@ -68,7 +83,13 @@ from serviceops.shared.schemas import (
     CustomerFeedbackResponse,
     DevelopmentAccountResponse,
     KnowledgeArticleResponse,
+    KnowledgeChunkResponse,
+    KnowledgeDocumentIngestRequest,
+    KnowledgeDocumentResponse,
     KnowledgePublishRequest,
+    KnowledgeReleaseCreateRequest,
+    KnowledgeReleaseResponse,
+    KnowledgeReleaseRollbackRequest,
     MessageRequest,
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
@@ -357,6 +378,140 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_knowledge_manager),
     ):
         return list_knowledge_articles(db)
+
+    @app.post(
+        "/api/ops/knowledge/documents",
+        response_model=KnowledgeDocumentResponse,
+    )
+    def ingest_knowledge_document(
+        body: KnowledgeDocumentIngestRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_knowledge_manager),
+    ):
+        content = decode_base64_document(body.content_base64)
+        result = ingest_document(
+            db,
+            filename=body.filename,
+            source_uri=body.source_uri,
+            data=content,
+            idempotency_key=body.idempotency_key,
+            owner=operator.name,
+        )
+        return result.document
+
+    @app.get(
+        "/api/ops/knowledge/documents",
+        response_model=list[KnowledgeDocumentResponse],
+    )
+    def knowledge_document_index(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return list_documents(db)
+
+    @app.get(
+        "/api/ops/knowledge/documents/{document_id}/chunks",
+        response_model=list[KnowledgeChunkResponse],
+    )
+    def knowledge_document_chunks(
+        document_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return list_document_chunks(db, document_id)
+
+    @app.get(
+        "/api/ops/knowledge/releases",
+        response_model=list[KnowledgeReleaseResponse],
+    )
+    def knowledge_release_index(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return list_releases(db)
+
+    @app.post(
+        "/api/ops/knowledge/releases",
+        response_model=KnowledgeReleaseResponse,
+    )
+    def knowledge_release_create(
+        body: KnowledgeReleaseCreateRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return create_knowledge_release(
+            db,
+            release_version=body.release_version,
+            document_ids=body.document_ids,
+            created_by=operator.name,
+            git_commit=body.git_commit,
+            evaluation_dataset_version=body.evaluation_dataset_version,
+        )
+
+    @app.post(
+        "/api/ops/knowledge/releases/{release_id}/evaluate",
+        response_model=KnowledgeReleaseResponse,
+    )
+    def knowledge_release_evaluate(
+        release_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return evaluate_knowledge_release(db, release_id)
+
+    @app.post(
+        "/api/ops/knowledge/releases/{release_id}/approve",
+        response_model=KnowledgeReleaseResponse,
+    )
+    def knowledge_release_approve(
+        release_id: str,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return approve_knowledge_release(db, release_id, approved_by=operator.name)
+
+    @app.post(
+        "/api/ops/knowledge/releases/{release_id}/publish",
+        response_model=KnowledgeReleaseResponse,
+    )
+    def knowledge_release_publish(
+        release_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return publish_knowledge_release(db, release_id)
+
+    @app.post(
+        "/api/ops/knowledge/releases/{release_id}/rollback",
+        response_model=KnowledgeReleaseResponse,
+    )
+    def knowledge_release_rollback(
+        release_id: str,
+        body: KnowledgeReleaseRollbackRequest,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return rollback_knowledge_release(
+            db,
+            release_id,
+            target_release_id=body.target_release_id,
+        )
+
+    @app.get(
+        "/api/ops/knowledge/releases/{release_id}/chunks",
+        response_model=list[KnowledgeChunkResponse],
+    )
+    def knowledge_release_chunks(
+        release_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        items = list_release_items(db, release_id)
+        return [
+            chunk
+            for item in items
+            if (chunk := db.get(KnowledgeChunk, item.chunk_id)) is not None
+        ]
 
     @app.get("/api/ops/dashboard", response_model=OpsDashboardResponse)
     def ops_dashboard(
