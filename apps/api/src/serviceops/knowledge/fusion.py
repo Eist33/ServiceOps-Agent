@@ -1,4 +1,4 @@
-"""Stage-3 lexical/vector candidate fusion without stage-4 tracing."""
+"""Stage-3 lexical/vector candidate fusion; Stage-4 tracing stays at the boundary."""
 
 from __future__ import annotations
 
@@ -85,8 +85,17 @@ def search_chunk_lexical_candidates(
             "vector_score": None,
             "lexical_score": round(score, 6),
             "hybrid_score": None,
+            "lexical_rank": rank,
+            "vector_rank": None,
+            "rrf_score": None,
+            "rerank_score": None,
+            "final_score": round(score, 6),
+            "selected": False,
+            "decision": "LEXICAL_CANDIDATE",
         }
-        for score, chunk, matched_release in ranked[: max(1, limit)]
+        for rank, (score, chunk, matched_release) in enumerate(
+            ranked[: max(1, limit)], start=1
+        )
     ]
 
 
@@ -150,6 +159,7 @@ def _merge_candidates(lexical: list[dict], vector: list[dict], *, limit: int) ->
     for rank, candidate in enumerate(lexical, start=1):
         item = merged.setdefault(candidate["chunk_id"], dict(candidate))
         item["lexical_score"] = candidate["lexical_score"]
+        item["lexical_rank"] = rank
         item["hybrid_score"] = (item.get("hybrid_score") or 0.0) + 0.5 / (RRF_K + rank)
     for rank, candidate in enumerate(vector, start=1):
         item = merged.setdefault(candidate["chunk_id"], dict(candidate))
@@ -162,10 +172,16 @@ def _merge_candidates(lexical: list[dict], vector: list[dict], *, limit: int) ->
                 "page_number": candidate["page_number"],
             }
         )
+        item["vector_rank"] = rank
         item["hybrid_score"] = (item.get("hybrid_score") or 0.0) + 0.5 / (RRF_K + rank)
     for item in merged.values():
         item["hybrid_score"] = round(item.get("hybrid_score") or 0.0, 6)
         item["relevance"] = item["hybrid_score"]
+        item["rrf_score"] = item["hybrid_score"]
+        item["final_score"] = item["hybrid_score"]
+        item["rerank_score"] = None
+        item["selected"] = False
+        item["decision"] = "RRF_CANDIDATE"
     return sorted(merged.values(), key=lambda item: item["hybrid_score"], reverse=True)[: max(1, limit)]
 
 
@@ -224,8 +240,9 @@ def search_hybrid_knowledge(
         lexical = []
 
     if vector or lexical:
-        merged = _merge_candidates(lexical, vector, limit=limit)
-        score = merged[0]["hybrid_score"] if merged else 0.0
+        merged = _merge_candidates(lexical, vector, limit=max(limit, 20))
+        visible = merged[: max(1, limit)]
+        score = visible[0]["hybrid_score"] if visible else 0.0
         partial_fallback = not (vector and lexical)
         fallback_reason = (
             vector_failure.code
@@ -236,10 +253,11 @@ def search_hybrid_knowledge(
             "strategy": "hybrid_rrf_v1" if vector and lexical else "lexical_v1",
             "confident": bool(merged and score >= MIN_HYBRID_SCORE),
             "score": score,
-            "results": merged,
+            "results": visible,
+            "trace_candidates": merged,
             "fallback": partial_fallback,
             "fallback_reason": fallback_reason,
-            "release_version": merged[0]["release_version"] if merged else None,
+            "release_version": visible[0]["release_version"] if visible else None,
             "provider": provider.provider if provider else None,
         }
     reason = vector_failure.code if vector_failure else "EMBEDDING_NO_RESULTS"

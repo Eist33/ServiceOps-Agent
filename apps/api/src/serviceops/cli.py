@@ -1,5 +1,7 @@
 import argparse
 import json
+import time
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -23,6 +25,12 @@ from serviceops.knowledge.releases import (
     publish_knowledge_release,
     rollback_knowledge_release,
 )
+from serviceops.knowledge.rerank import (
+    RerankerProviderError,
+    apply_optional_reranker,
+    build_reranker,
+)
+from serviceops.knowledge.trace import record_retrieval_trace, retrieval_quality_report
 from serviceops.knowledge.vector import search_vector_candidates
 from serviceops.retention.service import purge_expired_data
 from serviceops.seed import seed_database
@@ -204,9 +212,12 @@ def knowledge_search(
     product_scope: str,
     strategy: str,
     provider_name: str | None,
+    reranker_name: str | None,
     limit: int,
     now: datetime | None,
 ) -> int:
+    started = time.perf_counter()
+    request_trace_id = f"cli-{uuid.uuid4()}"
     provider = None
     provider_error: EmbeddingProviderError | None = None
     try:
@@ -214,6 +225,19 @@ def knowledge_search(
     except EmbeddingProviderError as error:
         provider_error = error
         if strategy == "vector_v1":
+            with SessionLocal() as db:
+                record_retrieval_trace(
+                    db,
+                    query=query,
+                    request_trace_id=request_trace_id,
+                    tenant_scope=tenant_scope,
+                    channel_scope=channel_scope,
+                    product_scope=product_scope,
+                    report={"strategy": strategy, "results": [], "confident": False},
+                    duration_ms=int((time.perf_counter() - started) * 1000),
+                    status="FAILED",
+                    error_code=error.code,
+                )
             raise
     with SessionLocal() as db:
         if strategy == "vector_v1":
@@ -233,10 +257,12 @@ def knowledge_search(
                 "confident": bool(results),
                 "score": results[0]["relevance"] if results else 0.0,
                 "results": results,
+                "trace_candidates": results,
                 "fallback": False,
                 "fallback_reason": None,
                 "release_version": results[0]["release_version"] if results else None,
                 "provider": provider.provider if provider else None,
+                "provider_model": provider.model if provider else None,
             }
         else:
             report = search_hybrid_knowledge(
@@ -251,6 +277,34 @@ def knowledge_search(
                 limit=limit,
                 strategy=strategy,
             )
+        report["provider_model"] = provider.model if provider else report.get("provider_model")
+        reranker = None
+        if reranker_name:
+            try:
+                reranker = build_reranker(reranker_name)
+            except RerankerProviderError as error:
+                report["reranker_status"] = "FALLBACK"
+                report["reranker_fallback"] = True
+                report["reranker_fallback_reason"] = error.code
+        report = apply_optional_reranker(report, query, provider=reranker)
+        trace = record_retrieval_trace(
+            db,
+            query=query,
+            request_trace_id=request_trace_id,
+            tenant_scope=tenant_scope,
+            channel_scope=channel_scope,
+            product_scope=product_scope,
+            report=report,
+            duration_ms=int((time.perf_counter() - started) * 1000),
+        )
+        report["trace_id"] = trace.id
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def knowledge_quality(*, window_hours: int) -> int:
+    with SessionLocal() as db:
+        report = retrieval_quality_report(db, window_hours=window_hours)
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0
 
@@ -286,6 +340,7 @@ def main(argv: list[str] | None = None) -> int:
             "knowledge-releases",
             "knowledge-embed",
             "knowledge-search",
+            "knowledge-quality",
         ),
         default="seed",
         nargs="?",
@@ -337,8 +392,10 @@ def main(argv: list[str] | None = None) -> int:
         default="lexical_v1",
     )
     parser.add_argument("--provider", default=None)
+    parser.add_argument("--reranker", default=None)
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--limit", type=int, default=5)
+    parser.add_argument("--window-hours", type=int, default=24)
     parser.add_argument("--now", type=parse_as_of, default=None)
     args = parser.parse_args(argv)
     if args.command == "evaluate-knowledge":
@@ -414,9 +471,12 @@ def main(argv: list[str] | None = None) -> int:
             product_scope=args.product_scope,
             strategy=args.retrieval_strategy,
             provider_name=args.provider,
+            reranker_name=args.reranker,
             limit=args.limit,
             now=args.now,
         )
+    if args.command == "knowledge-quality":
+        return knowledge_quality(window_hours=args.window_hours)
     seed()
     return 0
 

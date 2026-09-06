@@ -182,4 +182,12 @@ def search_vector_candidates(
         if candidate["vector_score"] >= MIN_VECTOR_RELEVANCE
     ]
     candidates.sort(key=lambda item: item["vector_score"], reverse=True)
+    for rank, candidate in enumerate(candidates, start=1):
+        candidate["vector_rank"] = rank
+        candidate["lexical_rank"] = None
+        candidate["rrf_score"] = None
+        candidate["rerank_score"] = None
+        candidate["final_score"] = candidate["vector_score"]
+        candidate["selected"] = False
+        candidate["decision"] = "VECTOR_CANDIDATE"
     return candidates[: max(1, limit)]

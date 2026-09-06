@@ -58,6 +58,18 @@ from serviceops.knowledge.releases import (
     publish_knowledge_release,
     rollback_knowledge_release,
 )
+from serviceops.knowledge.rerank import (
+    RerankerProviderError,
+    apply_optional_reranker,
+    build_reranker,
+)
+from serviceops.knowledge.trace import (
+    create_retrieval_feedback,
+    get_retrieval_trace,
+    record_retrieval_trace,
+    retrieval_quality_report,
+    review_retrieval_feedback,
+)
 from serviceops.knowledge.vector import search_vector_candidates
 from serviceops.models import Customer, KnowledgeChunk, Operator
 from serviceops.observability import log_request_event, normalize_trace_id
@@ -97,6 +109,11 @@ from serviceops.shared.schemas import (
     KnowledgeReleaseCreateRequest,
     KnowledgeReleaseResponse,
     KnowledgeReleaseRollbackRequest,
+    KnowledgeRetrievalFeedbackRequest,
+    KnowledgeRetrievalFeedbackResponse,
+    KnowledgeRetrievalFeedbackReviewRequest,
+    KnowledgeRetrievalQualityResponse,
+    KnowledgeRetrievalTraceResponse,
     KnowledgeSearchResponse,
     MessageRequest,
     OpsAlertAcknowledgementResponse,
@@ -518,53 +535,156 @@ def create_app() -> FastAPI:
         response_model=KnowledgeSearchResponse,
     )
     def knowledge_search(
+        request: Request,
         body: KnowledgeHybridSearchRequest,
         db: Session = Depends(get_db),
         _operator: Operator = Depends(current_knowledge_manager),
     ):
+        started = time.perf_counter()
         provider = None
         provider_error: EmbeddingProviderError | None = None
+        report: dict = {"strategy": body.strategy, "results": [], "confident": False}
         try:
-            provider = build_embedding_provider(body.provider)
-        except EmbeddingProviderError as error:
-            provider_error = error
+            try:
+                provider = build_embedding_provider(body.provider)
+            except EmbeddingProviderError as error:
+                provider_error = error
+                if body.strategy == "vector_v1":
+                    raise
             if body.strategy == "vector_v1":
-                raise
-        if body.strategy == "vector_v1":
-            candidates = search_vector_candidates(
+                candidates = search_vector_candidates(
+                    db,
+                    body.query,
+                    provider=provider,
+                    strategy=body.strategy,
+                    tenant_scope=body.tenant_scope,
+                    channel_scope=body.channel_scope,
+                    product_scope=body.product_scope,
+                    now=body.now,
+                    limit=body.limit,
+                )
+                score = candidates[0]["relevance"] if candidates else 0.0
+                report = {
+                    "strategy": "vector_v1",
+                    "confident": bool(candidates),
+                    "score": score,
+                    "results": candidates,
+                    "trace_candidates": candidates,
+                    "fallback": False,
+                    "fallback_reason": None,
+                    "release_version": candidates[0]["release_version"] if candidates else None,
+                    "provider": provider.provider if provider else None,
+                    "provider_model": provider.model if provider else None,
+                }
+            else:
+                report = search_hybrid_knowledge(
+                    db,
+                    body.query,
+                    provider=provider,
+                    provider_error=provider_error,
+                    tenant_scope=body.tenant_scope,
+                    channel_scope=body.channel_scope,
+                    product_scope=body.product_scope,
+                    now=body.now,
+                    limit=body.limit,
+                    strategy=body.strategy,
+                )
+                report["provider_model"] = provider.model if provider else None
+
+            reranker = None
+            if body.reranker:
+                try:
+                    reranker = build_reranker(body.reranker)
+                except RerankerProviderError as error:
+                    report["reranker_status"] = "FALLBACK"
+                    report["reranker_fallback"] = True
+                    report["reranker_fallback_reason"] = error.code
+            report = apply_optional_reranker(report, body.query, provider=reranker)
+            trace = record_retrieval_trace(
                 db,
-                body.query,
-                provider=provider,
-                strategy=body.strategy,
+                query=body.query,
+                request_trace_id=request.state.trace_id,
                 tenant_scope=body.tenant_scope,
                 channel_scope=body.channel_scope,
                 product_scope=body.product_scope,
-                now=body.now,
-                limit=body.limit,
+                report=report,
+                duration_ms=int((time.perf_counter() - started) * 1000),
             )
-            score = candidates[0]["relevance"] if candidates else 0.0
-            return {
-                "strategy": "vector_v1",
-                "confident": bool(candidates),
-                "score": score,
-                "results": candidates,
-                "fallback": False,
-                "fallback_reason": None,
-                "release_version": candidates[0]["release_version"] if candidates else None,
-                "provider": provider.provider if provider else None,
-            }
-        return search_hybrid_knowledge(
+            report["trace_id"] = trace.id
+            return report
+        except DomainError as error:
+            record_retrieval_trace(
+                db,
+                query=body.query,
+                request_trace_id=request.state.trace_id,
+                tenant_scope=body.tenant_scope,
+                channel_scope=body.channel_scope,
+                product_scope=body.product_scope,
+                report=report,
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                status="FAILED",
+                error_code=error.code,
+            )
+            raise
+
+    @app.get(
+        "/api/ops/knowledge/traces/{trace_id}",
+        response_model=KnowledgeRetrievalTraceResponse,
+    )
+    def knowledge_retrieval_trace(
+        trace_id: str,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return get_retrieval_trace(db, trace_id)
+
+    @app.post(
+        "/api/ops/knowledge/traces/{trace_id}/feedback",
+        response_model=KnowledgeRetrievalFeedbackResponse,
+    )
+    def knowledge_retrieval_feedback(
+        trace_id: str,
+        body: KnowledgeRetrievalFeedbackRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return create_retrieval_feedback(
             db,
-            body.query,
-            provider=provider,
-            provider_error=provider_error,
-            tenant_scope=body.tenant_scope,
-            channel_scope=body.channel_scope,
-            product_scope=body.product_scope,
-            now=body.now,
-            limit=body.limit,
-            strategy=body.strategy,
+            trace_id=trace_id,
+            label=body.label,
+            idempotency_key=body.idempotency_key,
+            created_by=operator.name,
+            deidentified_note=body.deidentified_note,
         )
+
+    @app.post(
+        "/api/ops/knowledge/feedback/{feedback_id}/review",
+        response_model=KnowledgeRetrievalFeedbackResponse,
+    )
+    def knowledge_retrieval_feedback_review(
+        feedback_id: str,
+        body: KnowledgeRetrievalFeedbackReviewRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return review_retrieval_feedback(
+            db,
+            feedback_id=feedback_id,
+            status=body.status,
+            reviewed_by=operator.name,
+            review_note=body.review_note,
+        )
+
+    @app.get(
+        "/api/ops/knowledge/quality",
+        response_model=KnowledgeRetrievalQualityResponse,
+    )
+    def knowledge_retrieval_quality(
+        window_hours: int = 24,
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_knowledge_manager),
+    ):
+        return retrieval_quality_report(db, window_hours=window_hours)
 
     @app.post(
         "/api/ops/knowledge/releases/{release_id}/rollback",

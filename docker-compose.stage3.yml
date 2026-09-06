@@ -19,6 +19,7 @@ services:
         "-m",
         "pytest",
         "tests/test_embedding_hybrid_retrieval.py",
+        "tests/test_retrieval_quality.py",
         "tests/test_knowledge_ingestion_pipeline.py",
         "tests/test_knowledge.py",
         "tests/test_knowledge_evaluation.py",

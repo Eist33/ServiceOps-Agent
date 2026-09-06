@@ -242,6 +242,7 @@ class KnowledgeHybridSearchRequest(BaseModel):
     product_scope: str = Field(default="*", min_length=1, max_length=120)
     strategy: Literal["vector_v1", "hybrid_rrf_v1"] = "hybrid_rrf_v1"
     provider: str | None = Field(default=None, min_length=2, max_length=80)
+    reranker: str | None = Field(default=None, min_length=2, max_length=80)
     limit: int = Field(default=5, ge=1, le=20)
     now: datetime | None = None
 
@@ -259,6 +260,13 @@ class KnowledgeSearchResult(BaseModel):
     vector_score: float | None = None
     lexical_score: float | None = None
     hybrid_score: float | None = None
+    lexical_rank: int | None = None
+    vector_rank: int | None = None
+    rrf_score: float | None = None
+    rerank_score: float | None = None
+    final_score: float | None = None
+    selected: bool = False
+    decision: str | None = None
 
 
 class KnowledgeSearchResponse(BaseModel):
@@ -270,6 +278,109 @@ class KnowledgeSearchResponse(BaseModel):
     fallback_reason: str | None = None
     release_version: str | None = None
     provider: str | None = None
+    trace_id: str | None = None
+    reranker_status: str = "NOT_CONFIGURED"
+    reranker_provider: str | None = None
+    reranker_model: str | None = None
+    reranker_version: str | None = None
+    reranker_fallback: bool = False
+    reranker_fallback_reason: str | None = None
+
+
+class KnowledgeRetrievalTraceCandidateResponse(BaseModel):
+    id: str
+    chunk_id: str | None
+    release_id: str | None
+    release_version: str | None
+    source_uri: str | None
+    lexical_rank: int | None
+    vector_rank: int | None
+    rrf_score: float | None
+    lexical_score: float | None
+    vector_score: float | None
+    rerank_score: float | None
+    final_score: float | None
+    selected: bool
+    decision: str
+    exclusion_reason: str | None
+
+
+class KnowledgeRetrievalTraceResponse(BaseModel):
+    id: str
+    request_trace_id: str
+    query_hash: str
+    query_length: int
+    strategy: str
+    release_version: str | None
+    provider: str | None
+    provider_model: str | None
+    reranker_provider: str | None
+    reranker_model: str | None
+    reranker_version: str | None
+    reranker_input_tokens: int
+    reranker_cost_micros: int
+    status: str
+    decision: str
+    confident: bool
+    fallback: bool
+    fallback_reason: str | None
+    filter_summary: dict[str, Any]
+    candidate_counts: dict[str, Any]
+    duration_ms: int
+    error_code: str | None
+    created_at: datetime
+    candidates: list[KnowledgeRetrievalTraceCandidateResponse]
+
+
+class KnowledgeRetrievalFeedbackRequest(BaseModel):
+    label: Literal[
+        "ZERO_RESULT",
+        "LOW_CONFIDENCE",
+        "WRONG_CITATION",
+        "NEGATIVE_RATING",
+        "HUMAN_CORRECTION",
+    ]
+    idempotency_key: str = Field(min_length=1, max_length=160)
+    deidentified_note: str | None = Field(default=None, max_length=500)
+
+
+class KnowledgeRetrievalFeedbackReviewRequest(BaseModel):
+    status: Literal["APPROVED", "REJECTED"]
+    review_note: str | None = Field(default=None, max_length=500)
+
+
+class KnowledgeRetrievalFeedbackResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    trace_id: str
+    label: str
+    status: str
+    idempotency_key: str
+    deidentified_note: str | None
+    created_by: str
+    reviewed_by: str | None
+    review_note: str | None
+    evaluation_eligible: bool
+    created_at: datetime
+    reviewed_at: datetime | None
+
+
+class KnowledgeRetrievalQualityResponse(BaseModel):
+    window_hours: int
+    trace_count: int
+    zero_result_count: int
+    low_confidence_count: int
+    failure_count: int
+    fallback_count: int
+    reranker_fallback_count: int
+    p50_duration_ms: int
+    p95_duration_ms: int
+    pending_feedback_count: int
+    approved_feedback_count: int
+    rejected_feedback_count: int
+    evaluation_eligible_count: int
+    external_requests_enabled: bool
 
 
 class OpsTicketSummary(BaseModel):

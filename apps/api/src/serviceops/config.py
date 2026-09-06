@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     embedding_requests_per_minute: int = 60
     embedding_cost_per_1k_tokens: float = 0.0
     embedding_normalization_version: str = "l2-v1"
+    reranker_provider: str = "not_configured"
+    reranker_model: str = "fixture-cross-encoder-v1"
+    reranker_timeout_ms: int = 250
     sensitive_tracing_enabled: bool = False
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

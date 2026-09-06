@@ -280,6 +280,18 @@ docker compose exec -T api python -m serviceops.cli knowledge-releases
 
 Stage 3 查询入口为知识运营专用 `POST /api/ops/knowledge/search`，必须明确 `tenant_scope`，并由服务端先过滤渠道、产品和生效期。provider 故障时仅在 `local-demo` 通配范围安全回退到既有 `lexical_v1`，不改变客服 Agent 默认词法行为；跨租户/未授权范围返回空结果。Docker-only embedding、vector/hybrid 输入输出、缓存/重试/成本、网页验收和失败判定见 [阶段 3：真实 embedding 与混合检索](docs/阶段3-真实Embedding与混合检索.md)；容器契约测试使用 `docker-compose.stage3.yml` 与独立测试镜像，不把生产 API 镜像当作测试镜像。阶段 3 不实现 reranker、检索 Trace、质量运营或 HyDE。
 
+### 阶段 4：重排、检索追踪与质量运营
+
+阶段 4 在保持 `lexical_v1`、`vector_v1` 和 `hybrid_rrf_v1` 兼容的前提下提供可选离线 `fixture` 重排、脱敏检索 Trace、候选 rank/score/最终决策、失败回退和质量运营反馈。默认 `RERANKER_PROVIDER=not_configured`；真实重排 provider 尚未配置，不发起网络请求。Trace 只保存查询哈希/长度、受控来源 URI、版本绑定、过滤摘要、候选分数、延迟和错误原因，不保存原始查询、候选正文、凭据或模型 key。
+
+知识运营可通过 `POST /api/ops/knowledge/search` 的 `reranker=fixture` 选择离线重排，通过 `GET /api/ops/knowledge/traces/{trace_id}` 查看解释，通过 `POST /api/ops/knowledge/traces/{trace_id}/feedback` 提交脱敏反馈，并由 `POST /api/ops/knowledge/feedback/{feedback_id}/review` 人工审核；只有 `APPROVED` 反馈进入离线评测候选，不会自动更新生产知识。质量汇总入口为 `GET /api/ops/knowledge/quality`，CLI 为：
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.stage3.yml run --rm api-test python -m serviceops.cli knowledge-quality --window-hours 24
+```
+
+阶段 4 的 Docker-only 测试、输入输出、网页验收和失败判定见 [阶段 4：重排、检索追踪与质量运营](docs/阶段4-重排、检索追踪与质量运营.md)。Docker Engine 不可用或容器测试非零时，不能以宿主机 SQLite 结果替代；阶段 4 不实现阶段 5 的查询改写、HyDE 或 multi-query。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

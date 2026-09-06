@@ -9,6 +9,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     DateTime,
+    Float,
     ForeignKey,
     Index,
     Integer,
@@ -411,6 +412,78 @@ class KnowledgeChunkEmbedding(Base):
     error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeRetrievalTrace(Base):
+    __tablename__ = "knowledge_retrieval_traces"
+    __table_args__ = (Index("ix_knowledge_retrieval_traces_created_at", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    request_trace_id: Mapped[str] = mapped_column(String(64), index=True)
+    query_hash: Mapped[str] = mapped_column(String(64), index=True)
+    query_length: Mapped[int] = mapped_column(Integer)
+    strategy: Mapped[str] = mapped_column(String(40))
+    release_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    provider_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reranker_provider: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reranker_model: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    reranker_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    reranker_input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    reranker_cost_micros: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(30), default="SUCCEEDED", index=True)
+    decision: Mapped[str] = mapped_column(String(30), default="REFUSE")
+    confident: Mapped[bool] = mapped_column(Boolean, default=False)
+    fallback: Mapped[bool] = mapped_column(Boolean, default=False)
+    fallback_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    filter_summary: Mapped[dict] = mapped_column(JSON, default=dict)
+    candidate_counts: Mapped[dict] = mapped_column(JSON, default=dict)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    error_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(240), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeRetrievalTraceCandidate(Base):
+    __tablename__ = "knowledge_retrieval_trace_candidates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    trace_id: Mapped[str] = mapped_column(
+        ForeignKey("knowledge_retrieval_traces.id", ondelete="CASCADE"), index=True
+    )
+    chunk_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    release_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    release_version: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    source_uri: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    lexical_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    vector_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    rrf_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    lexical_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    vector_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rerank_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    final_score: Mapped[float | None] = mapped_column(Float, nullable=True)
+    selected: Mapped[bool] = mapped_column(Boolean, default=False)
+    decision: Mapped[str] = mapped_column(String(30), default="CANDIDATE")
+    exclusion_reason: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class KnowledgeRetrievalFeedback(Base):
+    __tablename__ = "knowledge_retrieval_feedback"
+    __table_args__ = (UniqueConstraint("idempotency_key", name="uq_knowledge_retrieval_feedback_idempotency"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    trace_id: Mapped[str] = mapped_column(ForeignKey("knowledge_retrieval_traces.id"), index=True)
+    label: Mapped[str] = mapped_column(String(40))
+    status: Mapped[str] = mapped_column(String(30), default="PENDING_REVIEW", index=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    deidentified_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_by: Mapped[str] = mapped_column(String(120))
+    reviewed_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    review_note: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    evaluation_eligible: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class Conversation(Base):
