@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from serviceops.models import KnowledgeArticle
 
 MIN_RELEVANCE = 0.55
+RETRIEVAL_STRATEGY_VERSION = "lexical_v1"
 
 _CONCEPT_ALIASES: dict[str, tuple[str, ...]] = {
     "cancel": ("取消", "撤销", "不想要", "拦截"),
@@ -74,8 +75,22 @@ def _concept_denominator(query_concepts: set[str]) -> int:
     return max(2, len(query_concepts))
 
 
-def search_knowledge_base(db: Session, query: str, *, now: datetime | None = None) -> dict:
+def search_knowledge_base(
+    db: Session,
+    query: str,
+    *,
+    now: datetime | None = None,
+    limit: int = 1,
+) -> dict:
+    """Return the deterministic lexical baseline for a query.
+
+    ``limit`` is intentionally an in-process ranking window. The public
+    default remains one result so existing callers keep the old contract;
+    the baseline evaluator asks for the first five ranks to calculate
+    Hit@K and MRR without changing the retrieval strategy.
+    """
     current_time = now or datetime.now(UTC)
+    result_limit = max(1, limit)
     articles = list(
         db.scalars(
             select(KnowledgeArticle).where(
@@ -103,7 +118,7 @@ def search_knowledge_base(db: Session, query: str, *, now: datetime | None = Non
     ranked.sort(key=lambda item: item[:3], reverse=True)
     if not ranked or ranked[0][0] < MIN_RELEVANCE:
         return {"confident": False, "score": ranked[0][0] if ranked else 0.0, "results": []}
-    score, _, _, article = ranked[0]
+    score, _, _, _ = ranked[0]
     return {
         "confident": True,
         "score": round(score, 2),
@@ -115,7 +130,8 @@ def search_knowledge_base(db: Session, query: str, *, now: datetime | None = Non
                 "section": article.section,
                 "content": article.content,
                 "source_uri": article.source_uri,
-                "relevance": round(score, 2),
+                "relevance": round(candidate_score, 2),
             }
+            for candidate_score, _, _, article in ranked[:result_limit]
         ],
     }

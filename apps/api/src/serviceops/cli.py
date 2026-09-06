@@ -4,7 +4,11 @@ from datetime import UTC, datetime
 
 from serviceops.agent.evaluation import evaluate_agent_orchestration
 from serviceops.database import SessionLocal
-from serviceops.knowledge.evaluation import evaluate_knowledge_search
+from serviceops.knowledge.evaluation import (
+    EXPLORATORY_CASES,
+    EXPLORATORY_DATASET_VERSION,
+    evaluate_knowledge_search,
+)
 from serviceops.retention.service import purge_expired_data
 from serviceops.seed import seed_database
 
@@ -14,10 +18,16 @@ def seed() -> None:
         seed_database(db)
 
 
-def evaluate_knowledge() -> int:
+def evaluate_knowledge(*, include_exploratory: bool = False) -> int:
     with SessionLocal() as db:
         seed_database(db)
         report = evaluate_knowledge_search(db)
+        if include_exploratory:
+            report["exploratory"] = evaluate_knowledge_search(
+                db,
+                EXPLORATORY_CASES,
+                dataset_version=EXPLORATORY_DATASET_VERSION,
+            )
     print(json.dumps(report, ensure_ascii=False, indent=2))
     return 0 if report["passed"] else 1
 
@@ -81,6 +91,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Delay between real model cases; defaults to configured RPM spacing",
     )
     parser.add_argument(
+        "--include-exploratory",
+        action="store_true",
+        help="Also report de-identified typo, multi-intent, conflict, and OOD cases",
+    )
+    parser.add_argument(
         "--as-of",
         type=parse_as_of,
         default=None,
@@ -88,7 +103,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     if args.command == "evaluate-knowledge":
-        return evaluate_knowledge()
+        return evaluate_knowledge(include_exploratory=args.include_exploratory)
     if args.command == "evaluate-agent":
         return evaluate_agent(
             runtime=args.runtime,

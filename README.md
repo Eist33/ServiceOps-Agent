@@ -222,6 +222,18 @@ docker compose exec -T api python -m serviceops.cli evaluate-knowledge
 
 评测门禁要求可回答问题条款命中率不低于 95%，知识库外问题误答率为 0。当前固定评测集为 24/24 条款命中、6/6 正确拒答；CLI 以 JSON 输出详细指标和失败样本，未通过时返回非零退出码。
 
+### 阶段 0：知识检索基线冻结
+
+阶段 0 将当前检索明确冻结为 `lexical_v1`，基线数据集为 `knowledge-baseline-30-v1`，评测时钟为 `2026-09-06T00:00:00+00:00`。除保留原有命中率和拒答门禁外，CLI JSON 还输出 `hit_at_1`、`hit_at_3`、`hit_at_5`、`mrr`、`refusal_accuracy` 和 `p95_latency_ms`；Top-5 只用于离线评测，线上默认返回结构仍为 Top-1。
+
+使用以下容器命令同时查看固定 30 条基线和单独记录的同义词、错别字、多意图、冲突及知识库外 exploratory 缺口：
+
+```bash
+docker compose exec -T api python -m serviceops.cli evaluate-knowledge --include-exploratory
+```
+
+阶段 0 不启用 embedding、RRF、重排、HyDE、文档摄取或外部模型请求。固定基线的输入、输出、信任边界、风险假设、未决项和 Docker-only 验收见 [阶段 0：冻结基线与决策](docs/阶段0-冻结基线与决策.md)。网页入口 <http://localhost:3000/staff/knowledge> 只展示现有条款版本；阶段 0 的机器指标以容器 CLI JSON 为准，不通过网页按钮修改基线或触发外部请求。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

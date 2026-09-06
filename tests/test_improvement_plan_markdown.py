@@ -4,6 +4,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 PLAN = ROOT / "docs" / "企业客服与工单执行Agent_改进计划_v1.0.md"
 ADR = ROOT / "docs" / "ADR-0002-采用渐进式混合RAG而非照搬AgentX平台.md"
+STAGE_0 = ROOT / "docs" / "阶段0-冻结基线与决策.md"
 
 
 def test_improvement_plan_classifies_the_current_knowledge_system_honestly() -> None:
@@ -93,3 +94,24 @@ def test_improvement_docs_have_no_placeholders_or_internal_citations() -> None:
 
     for forbidden in ("TODO", "turn0search", ":codex-file-citation"):
         assert forbidden not in combined
+
+
+def test_stage_0_contract_freezes_versions_metrics_and_docker_acceptance() -> None:
+    text = STAGE_0.read_text(encoding="utf-8")
+
+    for decision in (
+        "`lexical_v1`",
+        "`knowledge-baseline-30-v1`",
+        "`2026-09-06T00:00:00+00:00`",
+        "`hit_at_1`",
+        "`hit_at_3`",
+        "`hit_at_5`",
+        "`mrr`",
+        "`refusal_accuracy`",
+        "`p95_latency_ms`",
+        "`knowledge-exploratory-edge-v1`",
+        "docker compose exec -T api python -m serviceops.cli evaluate-knowledge --include-exploratory",
+        "Docker Engine 不可用时只能记录环境阻塞",
+    ):
+        assert decision in text
+    assert "PowerShell" not in text
