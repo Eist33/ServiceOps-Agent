@@ -1,6 +1,6 @@
 'use client';
 
-import { useSyncExternalStore, useState } from 'react';
+import { useEffect, useSyncExternalStore, useState } from 'react';
 import {
   CheckCircle2,
   CircleAlert,
@@ -17,6 +17,11 @@ import {
 } from 'lucide-react';
 
 import { StaffNavigation } from '@/app/staff/staff-navigation';
+import {
+  isCurrentXianyuExtensionContext,
+  parseXianyuExtensionDraftMessage,
+  type XianyuExtensionDraftEnvelope,
+} from '@/lib/xianyu-browser-bridge';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
@@ -106,6 +111,23 @@ export default function XianyuChannelClient() {
     useState<XianyuChatListReadFailure | null>(null);
   const [chatDetailFailure, setChatDetailFailure] =
     useState<XianyuChatDetailReadFailure | null>(null);
+  const [pendingExtensionDraft, setPendingExtensionDraft] =
+    useState<XianyuExtensionDraftEnvelope | null>(null);
+
+  useEffect(() => {
+    function receiveExtensionDraft(event: MessageEvent) {
+      if (event.source !== window || event.origin !== window.location.origin) {
+        return;
+      }
+      const envelope = parseXianyuExtensionDraftMessage(event.data);
+      if (!envelope) return;
+      setPendingExtensionDraft(envelope);
+      setNotice('浏览器扩展草稿已到达工作台；请人工确认上下文后点击导入。');
+      setError('');
+    }
+    window.addEventListener('message', receiveExtensionDraft);
+    return () => window.removeEventListener('message', receiveExtensionDraft);
+  }, []);
 
   const chatList =
     connection && storedChatList?.connection_id === connection.connection_id
@@ -302,6 +324,45 @@ export default function XianyuChannelClient() {
       result,
       '本地回复草稿已创建，请先预览并由坐席审核。',
     );
+  }
+
+  function importExtensionDraft() {
+    if (!connection || !chatDetail || !pendingExtensionDraft) return;
+    let currentContext;
+    try {
+      currentContext = createReplyContext(
+        connection,
+        chatDetail.conversation_id,
+        chatDetail.source_page_version,
+        chatDetail.read_at,
+      );
+    } catch {
+      setNotice('');
+      setError('当前连接、会话或页面证据无法确认，扩展草稿未导入。');
+      return;
+    }
+    if (
+      !isCurrentXianyuExtensionContext(
+        pendingExtensionDraft,
+        currentContext,
+      )
+    ) {
+      setNotice('');
+      setError(
+        '扩展草稿的账号、连接、会话、标签页或页面版本不匹配，已失败关闭。',
+      );
+      return;
+    }
+    const result = createReplyDraft({
+      context: currentContext,
+      body: pendingExtensionDraft.draft.body,
+      now: new Date().toISOString(),
+    });
+    saveReplyWorkflowResult(
+      result,
+      '扩展草稿已导入本地工作台，请人工预览并审核。',
+    );
+    if (result.ok) setPendingExtensionDraft(null);
   }
 
   function approveCurrentReplyDraft() {
@@ -525,6 +586,8 @@ export default function XianyuChannelClient() {
               setError('');
               setNotice('已清除本地回复草稿和审计。');
             }}
+            extensionDraft={pendingExtensionDraft}
+            onImportExtensionDraft={importExtensionDraft}
           />
         )}
       </div>
@@ -713,6 +776,8 @@ function ChatDetailPanel({
   onRejectDraft,
   onRequestSend,
   onClearWorkflow,
+  extensionDraft,
+  onImportExtensionDraft,
 }: {
   connection: XianyuLocalConnection;
   failure: XianyuChatDetailReadFailure | null;
@@ -723,6 +788,8 @@ function ChatDetailPanel({
   onRejectDraft: () => void;
   onRequestSend: (confirmed: boolean) => void;
   onClearWorkflow: () => void;
+  extensionDraft: XianyuExtensionDraftEnvelope | null;
+  onImportExtensionDraft: () => void;
 }) {
   return (
     <Card aria-label="闲鱼会话详情只读映射">
@@ -814,6 +881,12 @@ function ChatDetailPanel({
               ID；当前版本不接入真实平台发送。模型不接收浏览器会话、Cookie
               或页面控制权。
             </p>
+            {extensionDraft && (
+              <ExtensionDraftImportPanel
+                draft={extensionDraft.draft}
+                onImport={onImportExtensionDraft}
+              />
+            )}
             <ReplyWorkflowPanel
               snapshot={workflowSnapshot}
               onApprove={onApproveDraft}
@@ -826,6 +899,39 @@ function ChatDetailPanel({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ExtensionDraftImportPanel({
+  draft,
+  onImport,
+}: {
+  draft: XianyuExtensionDraftEnvelope['draft'];
+  onImport: () => void;
+}) {
+  return (
+    <section
+      aria-label="浏览器扩展待导入草稿"
+      className="space-y-3 rounded-xl border border-violet-200 bg-violet-50/70 p-4"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-violet-950">
+          浏览器扩展草稿 · 待人工导入
+        </h3>
+        <Badge className="bg-amber-100 text-amber-900" variant="secondary">
+          USER_CONTROLLED / NOT_CONFIGURED
+        </Badge>
+      </div>
+      <p className="text-xs leading-5 text-violet-900">
+        扩展只把本地预览带到这里；导入前仍会重新核对当前账号、连接、会话、标签页和页面版本。点击导入不会发送消息。
+      </p>
+      <div className="rounded-lg border border-violet-200 bg-white p-3 text-sm leading-6 whitespace-pre-wrap">
+        {draft.body}
+      </div>
+      <Button onClick={onImport} type="button" variant="secondary">
+        <ShieldCheck /> 核对上下文并导入本地草稿
+      </Button>
+    </section>
   );
 }
 

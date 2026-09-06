@@ -1,0 +1,9 @@
+name: serviceops-xianyu-browser-extension
+
+services:
+  extension-contract:
+    image: node:22-bookworm-slim
+    working_dir: /workspace
+    volumes:
+      - ./browser-extension:/workspace:ro
+    command: ["node", "--test", "test/*.test.js"]

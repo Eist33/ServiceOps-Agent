@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "ServiceOps 用户控制浏览器桥接 (Edge)",
+  "version": "0.1.0",
+  "description": "只在用户点击后读取当前可见的本地白名单会话，并生成需要人工审核的本地草稿。",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [],
+  "action": {
+    "default_title": "ServiceOps 用户控制桥接",
+    "default_popup": "src/popup.html"
+  },
+  "background": {
+    "service_worker": "src/service-worker.js",
+    "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'"
+  },
+  "minimum_chrome_version": "110"
+}

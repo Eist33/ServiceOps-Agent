@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ServiceOps 用户控制桥接</title>
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <main>
+      <header>
+        <p class="eyebrow">SERVICEOPS · CHROME / EDGE</p>
+        <h1>用户控制浏览器桥接</h1>
+        <span id="status" class="badge">USER_CONTROLLED / NOT_CONFIGURED</span>
+      </header>
+
+      <div id="notice" class="notice" role="status"></div>
+
+      <section class="boundary">
+        <strong>安全边界</strong>
+        <p>
+          只在您点击读取后读取当前可见且已明确选择的会话标记。请勿在扩展或工作台输入手机号、验证码、密码、Cookie 或 Token。扩展不会发送消息，最终发送必须回到官方页面手动完成。
+        </p>
+      </section>
+
+      <section class="actions">
+        <button id="read" type="button">读取当前可见会话</button>
+        <button id="open-workbench" class="secondary" type="button">打开本地工作台</button>
+      </section>
+
+      <section id="session" class="card hidden">
+        <h2>已选择会话</h2>
+        <dl id="session-details"></dl>
+        <button id="push-workbench" class="secondary" type="button">交给已打开的工作台</button>
+      </section>
+
+      <section class="card">
+        <h2>本地回复草稿</h2>
+        <p class="muted">草稿仅保存在当前浏览器标签页的会话存储；不产生任何外部动作。</p>
+        <label for="draft-body">回复草稿内容</label>
+        <textarea id="draft-body" maxlength="2000" rows="4">您好，我已看到您的消息，会先为您核实，稍后回复。</textarea>
+        <button id="create-draft" type="button">创建本地草稿</button>
+        <div id="draft" class="draft hidden"></div>
+      </section>
+
+      <footer>
+        <span>没有官方授权适配器</span>
+        <span>没有自动点击或发送</span>
+      </footer>
+    </main>
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
