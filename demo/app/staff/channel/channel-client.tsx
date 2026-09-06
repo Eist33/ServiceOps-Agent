@@ -50,6 +50,21 @@ import {
   clearLocalXianyuPageCaches,
 } from '@/lib/xianyu-local-lifecycle';
 import {
+  appendReplyWorkflowResult,
+  approveReplyDraft,
+  clearLocalXianyuReplyWorkflow,
+  createReplyContext,
+  createReplyDraft,
+  readLocalXianyuReplyTabRef,
+  readStoredLocalXianyuReplyWorkflow,
+  rejectReplyDraft,
+  requestExplicitReplySend,
+  subscribeLocalXianyuReplyWorkflow,
+  writeLocalXianyuReplyWorkflow,
+  type ReplyWorkflowResult,
+  type ReplyWorkflowSnapshot,
+} from '@/lib/xianyu-reply-workflow';
+import {
   XIANYU_EXPERIMENT_NOTICE,
   XIANYU_LOCAL_FIXTURES,
   XIANYU_OFFICIAL_PAGE_URL,
@@ -79,6 +94,11 @@ export default function XianyuChannelClient() {
     readStoredLocalXianyuChatDetail,
     () => null,
   );
+  const storedReplyWorkflow = useSyncExternalStore(
+    subscribeLocalXianyuReplyWorkflow,
+    readStoredLocalXianyuReplyWorkflow,
+    () => null,
+  );
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -100,6 +120,21 @@ export default function XianyuChannelClient() {
         conversation.conversation_id === storedChatDetail.conversation_id,
     )
       ? storedChatDetail
+      : null;
+  const replyWorkflow =
+    connection &&
+    chatDetail &&
+    storedReplyWorkflow?.draft.context.connection_ref ===
+      connection.connection_id &&
+    storedReplyWorkflow.draft.context.account_ref ===
+      connection.display_identifier &&
+    storedReplyWorkflow.draft.context.conversation_ref ===
+      chatDetail.conversation_id &&
+    storedReplyWorkflow.draft.context.source_page_version ===
+      chatDetail.source_page_version &&
+    storedReplyWorkflow.draft.context.detail_read_at === chatDetail.read_at &&
+    storedReplyWorkflow.draft.context.tab_ref === readLocalXianyuReplyTabRef()
+      ? storedReplyWorkflow
       : null;
 
   function connectLocalFixture(fixtureId: XianyuFixtureId) {
@@ -182,6 +217,16 @@ export default function XianyuChannelClient() {
     );
     if (!fixture) return;
 
+    const existingReplyWorkflow = readStoredLocalXianyuReplyWorkflow();
+    if (
+      existingReplyWorkflow &&
+      (existingReplyWorkflow.draft.context.connection_ref !==
+        connection.connection_id ||
+        existingReplyWorkflow.draft.context.conversation_ref !== conversationId)
+    ) {
+      clearLocalXianyuReplyWorkflow();
+    }
+
     const result = readLocalXianyuChatDetail(
       connection,
       chatList,
@@ -199,6 +244,19 @@ export default function XianyuChannelClient() {
     );
     if (result.result === 'SUCCESS') {
       writeLocalXianyuChatDetail(result);
+      const currentReplyWorkflow = readStoredLocalXianyuReplyWorkflow();
+      if (
+        currentReplyWorkflow &&
+        (currentReplyWorkflow.draft.context.connection_ref !==
+          connection.connection_id ||
+          currentReplyWorkflow.draft.context.conversation_ref !==
+            result.conversation_id ||
+          currentReplyWorkflow.draft.context.source_page_version !==
+            result.source_page_version ||
+          currentReplyWorkflow.draft.context.detail_read_at !== result.read_at)
+      ) {
+        clearLocalXianyuReplyWorkflow();
+      }
       setChatDetailFailure(null);
       setError('');
       setNotice(`已读取会话 ${conversationId} 的最近消息。`);
@@ -207,6 +265,98 @@ export default function XianyuChannelClient() {
     setChatDetailFailure(result);
     setNotice('');
     setError(result.error_message);
+  }
+
+  function saveReplyWorkflowResult(
+    result: ReplyWorkflowResult,
+    successMessage: string,
+  ) {
+    const current = readStoredLocalXianyuReplyWorkflow();
+    const next = appendReplyWorkflowResult(current, result);
+    if (next) writeLocalXianyuReplyWorkflow(next);
+    if (result.ok) {
+      setError('');
+      setNotice(successMessage);
+    } else if (result.error_code === 'NOT_CONFIGURED') {
+      setError('');
+      setNotice(result.error_message ?? '真实平台发送未配置。');
+    } else {
+      setNotice('');
+      setError(result.error_message ?? '回复工作流未完成。');
+    }
+  }
+
+  function createCurrentReplyDraft(body: string) {
+    if (!connection || !chatDetail || connection.status !== 'CONNECTED') return;
+    const result = createReplyDraft({
+      context: createReplyContext(
+        connection,
+        chatDetail.conversation_id,
+        chatDetail.source_page_version,
+        chatDetail.read_at,
+      ),
+      body,
+      now: new Date().toISOString(),
+    });
+    saveReplyWorkflowResult(
+      result,
+      '本地回复草稿已创建，请先预览并由坐席审核。',
+    );
+  }
+
+  function approveCurrentReplyDraft() {
+    if (!connection || !chatDetail || !replyWorkflow) return;
+    const result = approveReplyDraft({
+      draft: replyWorkflow.draft,
+      actor_role: 'SUPPORT_AGENT',
+      current_context: createReplyContext(
+        connection,
+        chatDetail.conversation_id,
+        chatDetail.source_page_version,
+        chatDetail.read_at,
+      ),
+      now: new Date().toISOString(),
+      approval_action_id: crypto.randomUUID(),
+    });
+    saveReplyWorkflowResult(
+      result,
+      '草稿已通过坐席审核，请完成最终确认后再请求发送。',
+    );
+  }
+
+  function rejectCurrentReplyDraft() {
+    if (!connection || !chatDetail || !replyWorkflow) return;
+    const result = rejectReplyDraft({
+      draft: replyWorkflow.draft,
+      actor_role: 'SUPPORT_AGENT',
+      current_context: createReplyContext(
+        connection,
+        chatDetail.conversation_id,
+        chatDetail.source_page_version,
+        chatDetail.read_at,
+      ),
+      now: new Date().toISOString(),
+      rejection_action_id: crypto.randomUUID(),
+    });
+    saveReplyWorkflowResult(result, '草稿已取消，不会进入发送请求。');
+  }
+
+  function requestCurrentReplySend(confirmed: boolean) {
+    if (!connection || !chatDetail || !replyWorkflow) return;
+    const result = requestExplicitReplySend({
+      draft: replyWorkflow.draft,
+      actor_role: 'SUPPORT_AGENT',
+      current_context: createReplyContext(
+        connection,
+        chatDetail.conversation_id,
+        chatDetail.source_page_version,
+        chatDetail.read_at,
+      ),
+      now: new Date().toISOString(),
+      send_action_id: crypto.randomUUID(),
+      confirmation: confirmed ? 'CONFIRM_SEND' : null,
+    });
+    saveReplyWorkflowResult(result, '已记录本地发送请求。');
   }
 
   const status = connection?.status ?? 'DISCONNECTED';
@@ -361,9 +511,20 @@ export default function XianyuChannelClient() {
         )}
         {connection?.status === 'CONNECTED' && chatList && (
           <ChatDetailPanel
+            key={chatDetail?.conversation_id ?? 'empty'}
             connection={connection}
             failure={chatDetailFailure}
             snapshot={chatDetail}
+            workflowSnapshot={replyWorkflow}
+            onApproveDraft={approveCurrentReplyDraft}
+            onCreateDraft={createCurrentReplyDraft}
+            onRejectDraft={rejectCurrentReplyDraft}
+            onRequestSend={requestCurrentReplySend}
+            onClearWorkflow={() => {
+              clearLocalXianyuReplyWorkflow();
+              setError('');
+              setNotice('已清除本地回复草稿和审计。');
+            }}
           />
         )}
       </div>
@@ -546,10 +707,22 @@ function ChatDetailPanel({
   connection,
   failure,
   snapshot,
+  workflowSnapshot,
+  onApproveDraft,
+  onCreateDraft,
+  onRejectDraft,
+  onRequestSend,
+  onClearWorkflow,
 }: {
   connection: XianyuLocalConnection;
   failure: XianyuChatDetailReadFailure | null;
   snapshot: XianyuChatDetailReadSuccess | null;
+  workflowSnapshot: ReplyWorkflowSnapshot | null;
+  onApproveDraft: () => void;
+  onCreateDraft: (body: string) => void;
+  onRejectDraft: () => void;
+  onRequestSend: (confirmed: boolean) => void;
+  onClearWorkflow: () => void;
 }) {
   return (
     <Card aria-label="闲鱼会话详情只读映射">
@@ -638,13 +811,193 @@ function ChatDetailPanel({
             <p className="text-xs leading-5 text-muted-foreground">
               详情绑定当前连接 ID：{connection.connection_id.slice(0, 8)}…
               和会话
-              ID；当前版本没有发送、自动回复、附件下载、商品/订单、发货、关单或退款入口。模型不接收浏览器会话、Cookie
+              ID；当前版本不接入真实平台发送。模型不接收浏览器会话、Cookie
               或页面控制权。
             </p>
+            <ReplyWorkflowPanel
+              snapshot={workflowSnapshot}
+              onApprove={onApproveDraft}
+              onCreate={onCreateDraft}
+              onReject={onRejectDraft}
+              onRequestSend={onRequestSend}
+              onClear={onClearWorkflow}
+            />
           </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function ReplyWorkflowPanel({
+  snapshot,
+  onApprove,
+  onCreate,
+  onReject,
+  onRequestSend,
+  onClear,
+}: {
+  snapshot: ReplyWorkflowSnapshot | null;
+  onApprove: () => void;
+  onCreate: (body: string) => void;
+  onReject: () => void;
+  onRequestSend: (confirmed: boolean) => void;
+  onClear: () => void;
+}) {
+  const [body, setBody] = useState(
+    '您好，我已看到您的消息，会先为您核实，稍后回复。',
+  );
+  const [confirmedDraftId, setConfirmedDraftId] = useState<string | null>(null);
+  const draft = snapshot?.draft ?? null;
+  const confirmed =
+    draft?.status === 'APPROVED' && confirmedDraftId === draft.draft_id;
+
+  return (
+    <section
+      aria-label="本地回复草稿与发送门禁"
+      className="space-y-4 rounded-xl border border-sky-200 bg-sky-50/50 p-4"
+    >
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-sm font-semibold text-sky-950">
+            本地回复草稿 · 人审发送门禁
+          </h3>
+          <Badge className="bg-amber-100 text-amber-900" variant="secondary">
+            USER_CONTROLLED / NOT_CONFIGURED
+          </Badge>
+        </div>
+        <p className="mt-1 text-xs leading-5 text-sky-900">
+          草稿只保存在当前标签页的
+          sessionStorage。系统不会发送、自动点击官方页面或发起网络请求；真实发送必须由您在官方闲鱼前台手动完成。
+        </p>
+      </div>
+
+      {!draft ? (
+        <div className="space-y-3">
+          <label
+            className="block text-xs font-medium text-sky-950"
+            htmlFor="reply-draft-body"
+          >
+            回复草稿内容
+          </label>
+          <textarea
+            aria-label="回复草稿内容"
+            className="min-h-24 w-full rounded-lg border border-sky-200 bg-white px-3 py-2 text-sm leading-6 outline-none ring-primary focus:ring-2"
+            id="reply-draft-body"
+            maxLength={2000}
+            onChange={(event) => setBody(event.target.value)}
+            value={body}
+          />
+          <Button onClick={() => onCreate(body)} type="button">
+            <MessageSquareText /> 创建本地回复草稿
+          </Button>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          <div className="rounded-lg border border-sky-200 bg-white p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span>草稿预览 · {draft.body.length} 字符</span>
+              <Badge
+                className="bg-slate-100 text-slate-700"
+                variant="secondary"
+              >
+                {draft.status === 'DRAFTED'
+                  ? '待坐席审核'
+                  : draft.status === 'APPROVED'
+                    ? '已审核，待最终确认'
+                    : draft.status === 'SEND_BLOCKED_NOT_CONFIGURED'
+                      ? '发送已阻断'
+                      : draft.status === 'REJECTED'
+                        ? '已取消'
+                        : draft.status === 'EXPIRED'
+                          ? '已过期'
+                          : '已失败关闭'}
+              </Badge>
+            </div>
+            <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-900">
+              {draft.body}
+            </p>
+          </div>
+
+          {draft.status === 'DRAFTED' && (
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={onApprove} type="button">
+                <ShieldCheck /> 我已审核，进入发送确认
+              </Button>
+              <Button onClick={onReject} type="button" variant="outline">
+                取消草稿
+              </Button>
+            </div>
+          )}
+
+          {draft.status === 'APPROVED' && (
+            <div className="space-y-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <label className="flex items-start gap-2 text-xs leading-5 text-amber-950">
+                <input
+                  aria-label="我已再次确认发送内容和当前会话"
+                  checked={confirmed}
+                  className="mt-0.5 size-4 accent-primary"
+                  onChange={(event) =>
+                    setConfirmedDraftId(
+                      event.target.checked ? draft.draft_id : null,
+                    )
+                  }
+                  type="checkbox"
+                />
+                <span>
+                  我已再次确认草稿内容、当前账号和当前会话；我理解下一步只是记录本地请求，系统仍不会替我发送。
+                </span>
+              </label>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  disabled={!confirmed}
+                  onClick={() => onRequestSend(confirmed)}
+                  type="button"
+                >
+                  记录发送意图（需最终确认）
+                </Button>
+                <Button onClick={onReject} type="button" variant="outline">
+                  取消草稿
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {draft.status === 'SEND_BLOCKED_NOT_CONFIGURED' && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950">
+              <p className="font-semibold">未发送：真实平台适配器未配置</p>
+              <p className="mt-1">
+                本次只记录了一个本地发送请求，没有网络请求、没有官方页面点击、没有出站消息。请在官方闲鱼前台由您手动粘贴并发送。
+              </p>
+            </div>
+          )}
+
+          {draft.status === 'EXPIRED' && (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
+              草稿已过期并失败关闭，不能继续审核或发送。
+            </p>
+          )}
+
+          {draft.status === 'FAILED_CLOSED' && (
+            <p className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs leading-5 text-red-800">
+              当前账号、会话或页面证据已变化，草稿已失败关闭；请重新读取当前会话并创建草稿。
+            </p>
+          )}
+
+          {draft.status === 'REJECTED' && (
+            <p className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+              草稿已由坐席取消，不会进入发送请求。
+            </p>
+          )}
+
+          {draft.status !== 'DRAFTED' && (
+            <Button onClick={onClear} type="button" variant="outline">
+              清除本地草稿和审计
+            </Button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 

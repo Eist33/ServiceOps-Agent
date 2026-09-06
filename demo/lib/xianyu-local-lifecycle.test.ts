@@ -8,6 +8,10 @@ import {
 import { XIANYU_CHAT_DETAIL_STORAGE_KEY } from './xianyu-chat-detail.ts';
 import { XIANYU_CHAT_LIST_STORAGE_KEY } from './xianyu-chat-list.ts';
 import { XIANYU_CONNECTION_STORAGE_KEY } from './xianyu-local-session.ts';
+import {
+  XIANYU_REPLY_TAB_REF_STORAGE_KEY,
+  XIANYU_REPLY_WORKFLOW_STORAGE_KEY,
+} from './xianyu-reply-workflow.ts';
 
 function installMemorySessionStorage() {
   const values = new Map<string, string>();
@@ -31,6 +35,8 @@ void test('clear page caches keeps connection state and is idempotent', () => {
   sessionStorage.setItem(XIANYU_CONNECTION_STORAGE_KEY, 'connection');
   sessionStorage.setItem(XIANYU_CHAT_LIST_STORAGE_KEY, 'chat-list');
   sessionStorage.setItem(XIANYU_CHAT_DETAIL_STORAGE_KEY, 'chat-detail');
+  sessionStorage.setItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY, 'reply-workflow');
+  sessionStorage.setItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY, 'tab-ref');
 
   clearLocalXianyuPageCaches();
   clearLocalXianyuPageCaches();
@@ -41,6 +47,11 @@ void test('clear page caches keeps connection state and is idempotent', () => {
   );
   assert.equal(sessionStorage.getItem(XIANYU_CHAT_LIST_STORAGE_KEY), null);
   assert.equal(sessionStorage.getItem(XIANYU_CHAT_DETAIL_STORAGE_KEY), null);
+  assert.equal(sessionStorage.getItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY), null);
+  assert.equal(
+    sessionStorage.getItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY),
+    'tab-ref',
+  );
 });
 
 void test('clear experiment data removes every owned key without affecting another tab', () => {
@@ -48,11 +59,15 @@ void test('clear experiment data removes every owned key without affecting anoth
   firstTabStorage.setItem(XIANYU_CONNECTION_STORAGE_KEY, 'connection-a');
   firstTabStorage.setItem(XIANYU_CHAT_LIST_STORAGE_KEY, 'chat-list-a');
   firstTabStorage.setItem(XIANYU_CHAT_DETAIL_STORAGE_KEY, 'chat-detail-a');
+  firstTabStorage.setItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY, 'reply-a');
+  firstTabStorage.setItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY, 'tab-a');
 
   const secondTabStorage = installMemorySessionStorage();
   secondTabStorage.setItem(XIANYU_CONNECTION_STORAGE_KEY, 'connection-b');
   secondTabStorage.setItem(XIANYU_CHAT_LIST_STORAGE_KEY, 'chat-list-b');
   secondTabStorage.setItem(XIANYU_CHAT_DETAIL_STORAGE_KEY, 'chat-detail-b');
+  secondTabStorage.setItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY, 'reply-b');
+  secondTabStorage.setItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY, 'tab-b');
 
   Object.assign(globalThis, { window: { sessionStorage: firstTabStorage } });
   clearLocalXianyuExperimentData();
@@ -61,6 +76,11 @@ void test('clear experiment data removes every owned key without affecting anoth
   assert.equal(firstTabStorage.getItem(XIANYU_CONNECTION_STORAGE_KEY), null);
   assert.equal(firstTabStorage.getItem(XIANYU_CHAT_LIST_STORAGE_KEY), null);
   assert.equal(firstTabStorage.getItem(XIANYU_CHAT_DETAIL_STORAGE_KEY), null);
+  assert.equal(
+    firstTabStorage.getItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY),
+    null,
+  );
+  assert.equal(firstTabStorage.getItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY), null);
   assert.equal(
     secondTabStorage.getItem(XIANYU_CONNECTION_STORAGE_KEY),
     'connection-b',
@@ -72,5 +92,13 @@ void test('clear experiment data removes every owned key without affecting anoth
   assert.equal(
     secondTabStorage.getItem(XIANYU_CHAT_DETAIL_STORAGE_KEY),
     'chat-detail-b',
+  );
+  assert.equal(
+    secondTabStorage.getItem(XIANYU_REPLY_WORKFLOW_STORAGE_KEY),
+    'reply-b',
+  );
+  assert.equal(
+    secondTabStorage.getItem(XIANYU_REPLY_TAB_REF_STORAGE_KEY),
+    'tab-b',
   );
 });

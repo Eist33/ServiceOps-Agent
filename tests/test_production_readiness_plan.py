@@ -48,11 +48,12 @@ def test_production_plan_defines_xianyu_local_read_only_experiment() -> None:
     text = PLAN.read_text(encoding="utf-8")
 
     required_sections = (
-        "阶段 9B：闲鱼个人账号本地只读实验（进行中；9B-1～9B-4 已完成本地模拟验收）",
+        "阶段 9B：闲鱼个人账号本地只读实验（进行中；9B-1～9B-5 已完成本地模拟验收）",
         "阶段 9B-1：可见登录与本地会话边界",
         "阶段 9B-2：聊天列表只读映射",
         "阶段 9B-3：会话详情只读映射",
         "阶段 9B-4：账号切换、删除和保留期限",
+        "阶段 9B-5：人工审批回复草稿与发送意图（已完成本地模拟验收，2026-09-06）",
         "阶段 9B 退出条件",
         "阶段 9C：官方只读沙箱适配器（待外部条件）",
     )
@@ -95,6 +96,19 @@ def test_production_plan_links_the_9b4_lifecycle_delivery() -> None:
         "retention_runs",
         "purge-retention",
         "《9B-4：账号切换、删除和保留期限》",
+    ):
+        assert requirement in text
+
+
+def test_production_plan_records_the_9b5_human_approval_delivery() -> None:
+    text = PLAN.read_text(encoding="utf-8")
+
+    for requirement in (
+        "阶段 9B-5：人工审批回复草稿与发送意图（已完成本地模拟验收，2026-09-06）",
+        "草稿绑定连接、账号、会话、页面版本、详情读取时间和当前标签页不透明引用",
+        "SEND_BLOCKED_NOT_CONFIGURED",
+        "external_request_started=false",
+        "《9B-5：人工审批回复草稿与发送意图》",
     ):
         assert requirement in text
 

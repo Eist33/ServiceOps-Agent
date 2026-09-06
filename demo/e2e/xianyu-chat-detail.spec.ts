@@ -62,7 +62,9 @@ test('点击已确认会话只读取详情，刷新可恢复且没有写操作�
   await expect(
     detail.getByText('暂不支持的消息类型', { exact: true }),
   ).toBeVisible();
-  await expect(detail.getByRole('button')).toHaveCount(0);
+  await expect(
+    detail.getByRole('button', { name: '创建本地回复草稿' }),
+  ).toBeVisible();
   await expect(detail.getByRole('link')).toHaveCount(0);
 
   const stored = await page.evaluate((key) => {
