@@ -1,5 +1,22 @@
 """Platform-neutral production infrastructure readiness boundaries."""
 
+from serviceops.production.governance import (
+    OFFLINE_METRIC_GATES,
+    ONLINE_METRIC_GATES,
+    RELEASE_MANIFEST_VERSION,
+    REQUIRED_APPROVALS,
+    REQUIRED_MAINTENANCE_CHECKS,
+    SLI_VERSION,
+    STAGE6_GOVERNANCE_VERSION,
+    ReleaseEvidence,
+    ReleaseGateReport,
+    ReleaseGateState,
+    ReleaseManifest,
+    compute_sli_snapshot,
+    evaluate_release_gate,
+    production_governance_report,
+    run_continuous_governance_checks,
+)
 from serviceops.production.readiness import (
     REQUIRED_INFRASTRUCTURE_CAPABILITIES,
     REQUIRED_INFRASTRUCTURE_READINESS_REQUIREMENTS,
@@ -14,6 +31,17 @@ from serviceops.production.readiness import (
 )
 
 __all__ = [
+    "OFFLINE_METRIC_GATES",
+    "ONLINE_METRIC_GATES",
+    "REQUIRED_APPROVALS",
+    "REQUIRED_MAINTENANCE_CHECKS",
+    "RELEASE_MANIFEST_VERSION",
+    "SLI_VERSION",
+    "STAGE6_GOVERNANCE_VERSION",
+    "ReleaseEvidence",
+    "ReleaseGateReport",
+    "ReleaseGateState",
+    "ReleaseManifest",
     "InfrastructureCapability",
     "InfrastructureReadinessEvidence",
     "InfrastructureReadinessReport",
@@ -23,5 +51,9 @@ __all__ = [
     "REQUIRED_INFRASTRUCTURE_CAPABILITIES",
     "REQUIRED_INFRASTRUCTURE_READINESS_REQUIREMENTS",
     "evaluate_infrastructure_readiness",
+    "compute_sli_snapshot",
+    "evaluate_release_gate",
+    "production_governance_report",
+    "run_continuous_governance_checks",
     "unconfigured_infrastructure_runtime_status",
 ]

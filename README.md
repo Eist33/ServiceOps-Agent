@@ -300,6 +300,14 @@ docker compose -f docker-compose.yml -f docker-compose.stage3.yml run --rm api-t
 
 阶段 5 的 Docker-only 测试、固定评测集、输入输出、自动停止门禁、网页/可见验收和失败判定见 [阶段 5：受控查询增强实验](docs/阶段5-受控查询增强实验.md)。Docker Engine 不可用或容器测试非零时，不能用宿主机结果冒充 Docker 证据；阶段 5 不实现阶段 6 的生产发布与持续治理。
 
+### 阶段 6：生产发布与持续治理
+
+阶段 6 增加平台无关的生产发布候选门禁：发布清单绑定应用镜像不可变摘要、数据库迁移 head、AgentRelease、模型策略/提供方/模型版本、KnowledgeRelease、检索策略、评测报告摘要、SBOM 摘要和回滚目标；门禁同时检查签名/SBOM、迁移 dry-run、隔离备份恢复、回滚演练、知识范围、跨版本一致性、保留策略和四方审批。默认状态为 `NOT_CONFIGURED`，完整证据最高只能得到 `READY_FOR_PRODUCTION_REVIEW`，不会自动部署、切流、创建外部资源或发送告警。
+
+阶段 6 固定阻断阶段 5 查询增强晋级、外部平台写入、跨范围泄漏、过期知识命中、Prompt Injection 权限改变、无证据业务承诺和自动退款。`GET /api/ops/production/governance` 读取默认安全状态，`POST /api/ops/production/release-gate` 接收去标识化候选证据；CLI 为 `production-governance` 和 `production-release-gate`。机器字段固定返回 `publish_allowed=false`、`external_requests_enabled=false`；响应仅含版本/摘要、门禁、SLI 比率、维护计数、审批缺口和安全错误码，不含镜像正文、SBOM、Secret、客户数据或模型输入输出。
+
+阶段 6 的 Docker-only 测试、输入输出、Hit@1/3/5、MRR、p95、零结果率、拒答率、引用点击率、一次解决率、人工接管、满意度、单位会话成本、过期知识/孤立切块/失败 embedding/跨版本检查、网页/可见验收和回滚失败判定见 [阶段 6：生产发布与持续治理](docs/阶段6-生产发布与持续治理.md)。Docker Engine 不可用、容器测试非零或任一发布/安全/恢复证据缺失时，不能以宿主机结果宣称生产就绪。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

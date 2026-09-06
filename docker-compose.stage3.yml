@@ -25,4 +25,5 @@ services:
         "tests/test_knowledge_evaluation.py",
         "tests/test_knowledge_management_api.py",
         "tests/test_query_enhancement.py",
+        "tests/test_production_governance.py",
       ]

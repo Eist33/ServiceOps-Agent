@@ -89,6 +89,7 @@ from serviceops.operations.service import (
 )
 from serviceops.operations.streaming import stream_operations_alerts
 from serviceops.orders.service import get_order, list_recent_orders
+from serviceops.production.governance import production_governance_report
 from serviceops.refunds.service import cancel_refund, confirm_refund
 from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
@@ -133,6 +134,8 @@ from serviceops.shared.schemas import (
     OpsQualityReportResponse,
     OpsTicketReportResponse,
     OrderResponse,
+    ProductionGovernanceResponse,
+    ProductionReleaseGateRequest,
     RefundResponse,
     ShippingResponse,
     TicketCreateRequest,
@@ -861,6 +864,31 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_operations_operator),
     ):
         return governance_snapshot()
+
+    @app.get(
+        "/api/ops/production/governance",
+        response_model=ProductionGovernanceResponse,
+    )
+    def production_governance_status(
+        _operator: Operator = Depends(current_operations_operator),
+    ):
+        return production_governance_report()
+
+    @app.post(
+        "/api/ops/production/release-gate",
+        response_model=ProductionGovernanceResponse,
+    )
+    def production_release_gate(
+        body: ProductionReleaseGateRequest,
+        _operator: Operator = Depends(current_operations_operator),
+    ):
+        return production_governance_report(
+            manifest=body.manifest,
+            evidence=body.evidence,
+            offline_metrics=body.offline_metrics,
+            online_metrics=body.online_metrics,
+            maintenance_checks=body.maintenance_checks,
+        )
 
     @app.get("/api/ops/tickets", response_model=OpsTicketReportResponse)
     def ops_ticket_report(

@@ -40,6 +40,7 @@ from serviceops.knowledge.rerank import (
 )
 from serviceops.knowledge.trace import record_retrieval_trace, retrieval_quality_report
 from serviceops.knowledge.vector import search_vector_candidates
+from serviceops.production.governance import production_governance_report
 from serviceops.retention.service import purge_expired_data
 from serviceops.seed import seed_database
 
@@ -88,6 +89,46 @@ def purge_retention(*, as_of: datetime | None = None) -> int:
 def agent_governance() -> int:
     print(json.dumps(governance_snapshot(), ensure_ascii=False, indent=2))
     return 0
+
+
+def _json_object(value: str | None, *, name: str) -> dict:
+    if not value:
+        return {}
+    try:
+        decoded = json.loads(value)
+    except json.JSONDecodeError as error:
+        raise ValueError(f"{name} 必须是 JSON 对象") from error
+    if not isinstance(decoded, dict):
+        raise ValueError(f"{name} 必须是 JSON 对象")
+    return decoded
+
+
+def production_governance_status() -> int:
+    report = production_governance_report()
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0
+
+
+def production_release_gate(
+    *,
+    manifest_json: str | None,
+    evidence_json: str | None,
+    offline_metrics_json: str | None,
+    online_metrics_json: str | None,
+    maintenance_checks_json: str | None,
+) -> int:
+    report = production_governance_report(
+        manifest=_json_object(manifest_json, name="--manifest-json"),
+        evidence=_json_object(evidence_json, name="--evidence-json"),
+        offline_metrics=_json_object(offline_metrics_json, name="--offline-metrics-json"),
+        online_metrics=_json_object(online_metrics_json, name="--online-metrics-json"),
+        maintenance_checks=_json_object(
+            maintenance_checks_json,
+            name="--maintenance-checks-json",
+        ),
+    )
+    print(json.dumps(report, ensure_ascii=False, indent=2))
+    return 0 if report["state"] == "READY_FOR_PRODUCTION_REVIEW" else 1
 
 
 def _json_model(value) -> dict:
@@ -448,6 +489,8 @@ def main(argv: list[str] | None = None) -> int:
             "evaluate-agent",
             "purge-retention",
             "agent-governance",
+            "production-governance",
+            "production-release-gate",
             "knowledge-ingest",
             "knowledge-documents",
             "knowledge-preview",
@@ -525,6 +568,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--limit", type=int, default=5)
     parser.add_argument("--window-hours", type=int, default=24)
     parser.add_argument("--now", type=parse_as_of, default=None)
+    parser.add_argument("--manifest-json", default=None)
+    parser.add_argument("--evidence-json", default=None)
+    parser.add_argument("--offline-metrics-json", default=None)
+    parser.add_argument("--online-metrics-json", default=None)
+    parser.add_argument("--maintenance-checks-json", default=None)
     args = parser.parse_args(argv)
     if args.command == "evaluate-knowledge":
         return evaluate_knowledge(include_exploratory=args.include_exploratory)
@@ -538,6 +586,19 @@ def main(argv: list[str] | None = None) -> int:
         return purge_retention(as_of=args.as_of)
     if args.command == "agent-governance":
         return agent_governance()
+    if args.command == "production-governance":
+        return production_governance_status()
+    if args.command == "production-release-gate":
+        try:
+            return production_release_gate(
+                manifest_json=args.manifest_json,
+                evidence_json=args.evidence_json,
+                offline_metrics_json=args.offline_metrics_json,
+                online_metrics_json=args.online_metrics_json,
+                maintenance_checks_json=args.maintenance_checks_json,
+            )
+        except ValueError as error:
+            parser.error(str(error))
     if args.command == "knowledge-ingest":
         if not args.file or not args.source_uri:
             parser.error("knowledge-ingest 需要 --file 和 --source-uri")

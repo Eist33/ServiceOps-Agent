@@ -434,6 +434,27 @@ class KnowledgeQueryEnhancementEvaluationResponse(BaseModel):
     external_requests_enabled: bool
 
 
+class ProductionReleaseGateRequest(BaseModel):
+    manifest: dict[str, Any] = Field(default_factory=dict)
+    evidence: dict[str, Any] = Field(default_factory=dict)
+    offline_metrics: dict[str, Any] = Field(default_factory=dict)
+    online_metrics: dict[str, Any] = Field(default_factory=dict)
+    maintenance_checks: dict[str, Any] = Field(default_factory=dict)
+
+
+class ProductionGovernanceResponse(BaseModel):
+    governance_version: str
+    state: str
+    release_gate: dict[str, Any]
+    sli: dict[str, Any]
+    maintenance: dict[str, Any]
+    audit: dict[str, Any]
+    publish_allowed: bool
+    rollback_allowed: bool
+    external_resources_enabled: bool
+    external_requests_enabled: bool
+
+
 class OpsTicketSummary(BaseModel):
     total: int
     active: int
