@@ -261,11 +261,21 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
                 "id": item.id,
                 "refund_number": item.refund_number,
                 "ticket_id": item.ticket_id,
+                "order_id": item.order_id,
                 "status": item.status,
                 "amount": str(item.amount),
                 "method": item.method,
                 "reason": item.reason,
+                "approved_by_operator_id": item.approved_by_operator_id,
+                "approved_at": (
+                    item.approved_at.isoformat() if item.approved_at else None
+                ),
+                "confirmed_at": (
+                    item.confirmed_at.isoformat() if item.confirmed_at else None
+                ),
+                "version": item.version,
                 "created_at": item.created_at.isoformat(),
+                "updated_at": item.updated_at.isoformat(),
             }
             for item in refunds
         ],

@@ -60,7 +60,9 @@ def refund_response(refund: RefundRequest) -> RefundResponse:
         approved_by_operator_id=refund.approved_by_operator_id,
         approved_at=refund.approved_at,
         confirmed_at=refund.confirmed_at,
+        version=refund.version,
         created_at=refund.created_at,
+        updated_at=refund.updated_at,
     )
 
 

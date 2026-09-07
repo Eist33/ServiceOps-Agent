@@ -91,7 +91,9 @@ export type RefundData = {
   approved_by_operator_id?: string | null;
   approved_at?: string | null;
   confirmed_at?: string | null;
+  version: number;
   created_at: string;
+  updated_at: string;
 };
 
 export type ConversationState = {

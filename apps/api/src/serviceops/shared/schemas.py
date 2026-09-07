@@ -654,7 +654,9 @@ class RefundResponse(BaseModel):
     approved_by_operator_id: str | None = None
     approved_at: datetime | None = None
     confirmed_at: datetime | None
+    version: int
     created_at: datetime
+    updated_at: datetime
 
 
 class AgentTicketResponse(BaseModel):

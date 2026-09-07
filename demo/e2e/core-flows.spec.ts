@@ -433,7 +433,12 @@ test('退款先经客服网页人工审批，再由客户网页明确确认后�
     agentPage.getByText(/已通过人工审批，等待客户确认/),
   ).toBeVisible();
 
-  await expect(page.getByText('退款确认')).toBeVisible({ timeout: 7000 });
+  await expect(page.getByText('客服已同意退款，请确认退款。')).toBeVisible({
+    timeout: 7000,
+  });
+  await expect(page.getByText('客服已同意退款，请确认')).toBeVisible({
+    timeout: 7000,
+  });
   const confirmButton = page.getByRole('button', { name: '确认退款' });
   await confirmButton.click();
   await expect(page.getByText(/退款已模拟完成/)).toBeVisible();

@@ -71,6 +71,8 @@ def test_refund_approval_is_visible_only_in_the_support_agent_workbench() -> Non
     assert "PENDING_CONFIRMATION" in customer_client
     assert "persistedRefundItems" in customer_client
     assert "refundNeedsRefresh" in customer_client
+    assert "客服已同意退款，请确认退款" in customer_client
+    assert "approval-granted-${refund.id}-${refund.version}" in customer_client
     assert "确认退款" in customer_client
 
 

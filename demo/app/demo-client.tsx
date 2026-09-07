@@ -195,6 +195,23 @@ export default function DemoClient() {
         );
         return refund ? { ...item, status: refund.status } : item;
       });
+      const approvalGrantedNotices = next.refunds
+        .filter((refund) => refund.status === 'PENDING_CONFIRMATION')
+        .filter((refund) => {
+          const previous = current.find(
+            (item) => item.kind === 'approval' && item.refundId === refund.id,
+          );
+          return previous?.kind === 'approval' &&
+            previous.status === 'PENDING_HUMAN_APPROVAL';
+        })
+        .map((refund) => ({
+          id: `approval-granted-${refund.id}-${refund.version}`,
+          kind: 'notice' as const,
+          text: '客服已同意退款，请确认退款。',
+        }))
+        .filter(
+          (notice) => !current.some((item) => item.id === notice.id),
+        );
       const knownRefundIds = new Set(
         mapped.flatMap((item) => (item.kind === 'approval' ? [item.refundId] : [])),
       );
@@ -214,7 +231,7 @@ export default function DemoClient() {
           reason: refund.reason,
           status: refund.status,
         }));
-      return [...mapped, ...serverItems];
+      return [...mapped, ...serverItems, ...approvalGrantedNotices];
     });
     return next;
   }, []);
@@ -1134,7 +1151,7 @@ function TimelineEntry({
           {isPendingApproval
             ? '等待客服人工审批'
             : isPendingConfirmation
-              ? '退款确认'
+              ? '客服已同意退款，请确认'
               : `退款状态：${refundStatusLabel(item.status)}`}
         </div>
       </div>
@@ -1155,6 +1172,11 @@ function TimelineEntry({
       {isPendingApproval && (
         <p className="px-4 pt-3 text-xs leading-5 text-amber-700">
           申请已创建，客服人工审批通过后才能确认退款；当前不会执行任何退款操作。
+        </p>
+      )}
+      {isPendingConfirmation && (
+        <p className="px-4 pt-3 text-xs font-medium leading-5 text-emerald-700">
+          客服已同意退款，请确认退款。确认前不会执行退款。
         </p>
       )}
       {!isCustomerActionable && (

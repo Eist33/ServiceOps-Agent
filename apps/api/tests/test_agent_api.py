@@ -436,6 +436,36 @@ def test_refund_api_is_idempotent(client):
     assert first.json() == second.json()
 
 
+def test_customer_refresh_exposes_approval_version_and_operator_timestamp(client):
+    conversation_id = new_conversation(client)
+    events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
+    refund_id = next(
+        event["refund_request_id"]
+        for event in events
+        if event["type"] == "approval_required"
+    )
+    before = client.get(f"/api/conversations/{conversation_id}").json()["refunds"][0]
+    assert before["status"] == "PENDING_HUMAN_APPROVAL"
+    assert before["version"] == 1
+    assert before["approved_by_operator_id"] is None
+    assert before["approved_at"] is None
+
+    approval = client.post(
+        f"/api/agent/refund-requests/{refund_id}/approve",
+        headers={
+            "X-Agent-Session": AGENT_SESSION_TOKEN,
+            "Idempotency-Key": "refresh-approval-key",
+        },
+    )
+    assert approval.status_code == 200
+    after = client.get(f"/api/conversations/{conversation_id}").json()["refunds"][0]
+    assert after["status"] == "PENDING_CONFIRMATION"
+    assert after["version"] == 2
+    assert after["approved_by_operator_id"] == approval.json()["approved_by_operator_id"]
+    assert after["approved_at"].startswith(approval.json()["approved_at"].rstrip("Z"))
+    assert after["updated_at"].startswith(approval.json()["updated_at"].rstrip("Z"))
+
+
 def test_refund_api_rejects_missing_key(client):
     conversation_id = new_conversation(client)
     events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
