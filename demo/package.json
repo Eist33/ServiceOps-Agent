@@ -11,7 +11,7 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test:unit": "node --experimental-strip-types --test lib/xianyu-local-session.test.ts lib/xianyu-chat-list.test.ts lib/xianyu-chat-detail.test.ts lib/xianyu-local-lifecycle.test.ts lib/xianyu-reply-workflow.test.ts lib/xianyu-browser-bridge.test.ts lib/refund-approval.test.ts",
+    "test:unit": "node --experimental-strip-types --test lib/client-id.test.ts lib/xianyu-local-session.test.ts lib/xianyu-chat-list.test.ts lib/xianyu-chat-detail.test.ts lib/xianyu-local-lifecycle.test.ts lib/xianyu-reply-workflow.test.ts lib/xianyu-browser-bridge.test.ts lib/refund-approval.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {

@@ -29,6 +29,7 @@ import {
 } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Textarea } from '@/components/ui/textarea';
+import { clientId } from '@/lib/client-id';
 import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
   type AgentProfileData,
@@ -307,7 +308,7 @@ export default function AgentWorkbenchClient() {
     setError('');
     setNotice('');
     try {
-      const key = crypto.randomUUID();
+      const key = clientId('refund-decision');
       if (action === 'APPROVE') {
         await approveAgentRefund(refund.id, key);
         setNotice(`退款申请 ${refund.refund_number} 已通过人工审批，等待客户确认`);

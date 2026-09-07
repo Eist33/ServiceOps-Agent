@@ -1,3 +1,5 @@
+import { clientId } from './client-id.ts';
+
 export const XIANYU_EXPERIMENT_NOTICE =
   '实验性闲鱼个人账号连接，仅供本人授权的本地测试';
 export const XIANYU_LOCAL_PAGE_VERSION = 'local-fixed-page-v1';
@@ -81,7 +83,7 @@ export function createLocalXianyuConnection(
   return {
     schema_version: 1,
     provider: 'XIANYU',
-    connection_id: crypto.randomUUID(),
+    connection_id: clientId('connection'),
     display_identifier: fixture.display_identifier,
     source_page: 'LOCAL_FIXED_PAGE',
     source_page_version: XIANYU_LOCAL_PAGE_VERSION,

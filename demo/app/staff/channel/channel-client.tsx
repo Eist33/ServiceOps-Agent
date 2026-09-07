@@ -25,6 +25,7 @@ import {
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
+import { clientId } from '@/lib/client-id';
 import {
   Card,
   CardContent,
@@ -377,7 +378,7 @@ export default function XianyuChannelClient() {
         chatDetail.read_at,
       ),
       now: new Date().toISOString(),
-      approval_action_id: crypto.randomUUID(),
+      approval_action_id: clientId('approval'),
     });
     saveReplyWorkflowResult(
       result,
@@ -397,7 +398,7 @@ export default function XianyuChannelClient() {
         chatDetail.read_at,
       ),
       now: new Date().toISOString(),
-      rejection_action_id: crypto.randomUUID(),
+      rejection_action_id: clientId('rejection'),
     });
     saveReplyWorkflowResult(result, '草稿已取消，不会进入发送请求。');
   }
@@ -414,7 +415,7 @@ export default function XianyuChannelClient() {
         chatDetail.read_at,
       ),
       now: new Date().toISOString(),
-      send_action_id: crypto.randomUUID(),
+      send_action_id: clientId('send'),
       confirmation: confirmed ? 'CONFIRM_SEND' : null,
     });
     saveReplyWorkflowResult(result, '已记录本地发送请求。');

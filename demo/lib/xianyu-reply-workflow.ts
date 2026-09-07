@@ -2,6 +2,7 @@ import {
   XIANYU_LOCAL_PAGE_VERSION,
   type XianyuLocalConnection,
 } from './xianyu-local-session.ts';
+import { clientId } from './client-id.ts';
 
 /**
  * 9B-5 is deliberately a local, platform-neutral approval contract.  It
@@ -276,7 +277,7 @@ function isReplyEventType(value: unknown): value is ReplyAuditEventType {
 }
 
 function createOpaqueId(prefix: string): string {
-  return `${prefix}-${crypto.randomUUID()}`;
+  return clientId(prefix);
 }
 
 function validTimestampOrder(start: string, end: string): boolean {

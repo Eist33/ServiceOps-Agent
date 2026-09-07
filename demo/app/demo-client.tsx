@@ -36,6 +36,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { clientId } from '@/lib/client-id';
 import {
   type AgentEvent,
   type ConversationState,
@@ -314,7 +315,7 @@ export default function DemoClient() {
       setItems((current) => [
         ...current,
         {
-          id: event.tool_call_id ?? crypto.randomUUID(),
+          id: event.tool_call_id ?? clientId('tool'),
           kind: 'tool',
           name: String(event.payload.tool_name),
           status: 'running',
@@ -445,7 +446,7 @@ export default function DemoClient() {
       setItems((current) => [
         ...current,
         {
-          id: `local-${crypto.randomUUID()}`,
+          id: clientId('local'),
           kind: 'message',
           role: 'user',
           text: content,
@@ -458,7 +459,7 @@ export default function DemoClient() {
         setItems((current) => [
           ...current,
           {
-            id: `error-${crypto.randomUUID()}`,
+          id: clientId('error'),
             kind: 'error',
             text: caught instanceof Error ? caught.message : '请求失败',
           },
@@ -561,7 +562,7 @@ export default function DemoClient() {
     if (busy) return;
     setBusy(true);
     try {
-      const refund = await confirmRefund(refundId, crypto.randomUUID());
+      const refund = await confirmRefund(refundId, clientId('confirm'));
       setItems((current) => [
         ...current.filter(
           (item) => item.kind !== 'approval' || item.refundId !== refundId,
