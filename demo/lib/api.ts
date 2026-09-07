@@ -74,6 +74,21 @@ export type CustomerFeedbackData = {
   submitted_at: string;
 };
 
+export type RefundData = {
+  id: string;
+  refund_number: string;
+  ticket_id: string;
+  order_id: string;
+  status: string;
+  amount: string;
+  method: string;
+  reason: string;
+  approved_by_operator_id?: string | null;
+  approved_at?: string | null;
+  confirmed_at?: string | null;
+  created_at: string;
+};
+
 export type ConversationState = {
   conversation: {
     id: string;
@@ -93,16 +108,7 @@ export type ConversationState = {
     created_at: string;
   }>;
   tickets: TicketData[];
-  refunds: Array<{
-    id: string;
-    refund_number: string;
-    ticket_id: string;
-    status: string;
-    amount: string;
-    method: string;
-    reason: string;
-    created_at: string;
-  }>;
+  refunds: RefundData[];
   tool_invocations: Array<{
     id: string;
     tool_call_id: string;
@@ -378,6 +384,7 @@ export type AgentTicketData = {
     actor: string;
     created_at: string;
   }>;
+  refund: RefundData | null;
 };
 
 export type AgentQueueEvent =
@@ -742,5 +749,39 @@ export const resolveAgentTicket = (
     {
       method: 'POST',
       body: JSON.stringify({ resolution }),
+    },
+  );
+
+export const approveAgentRefund = (refundId: string, key: string) =>
+  agentRequest<RefundData>(
+    `/api/agent/refund-requests/${refundId}/approve`,
+    { method: 'POST', headers: { 'Idempotency-Key': key } },
+  );
+
+export const rejectAgentRefund = (
+  refundId: string,
+  key: string,
+  reason: string,
+) =>
+  agentRequest<RefundData>(
+    `/api/agent/refund-requests/${refundId}/reject`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body: JSON.stringify({ reason }),
+    },
+  );
+
+export const withdrawAgentRefund = (
+  refundId: string,
+  key: string,
+  reason: string,
+) =>
+  agentRequest<RefundData>(
+    `/api/agent/refund-requests/${refundId}/withdraw`,
+    {
+      method: 'POST',
+      headers: { 'Idempotency-Key': key },
+      body: JSON.stringify({ reason }),
     },
   );

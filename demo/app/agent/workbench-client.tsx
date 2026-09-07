@@ -33,14 +33,22 @@ import { StaffNavigation } from '@/app/staff/staff-navigation';
 import {
   type AgentProfileData,
   type AgentTicketData,
+  type RefundData,
   acceptAgentTicket,
   addAgentTicketNote,
+  approveAgentRefund,
   getAgentProfile,
   listAgentTickets,
+  rejectAgentRefund,
   resolveAgentTicket,
   sendAgentTicketMessage,
   streamAgentTickets,
+  withdrawAgentRefund,
 } from '@/lib/api';
+import {
+  refundApprovalActions,
+  refundApprovalStatusLabel,
+} from '@/lib/refund-approval';
 
 type QueueFilter = 'ACTIVE' | 'QUEUED' | 'MINE' | 'RESOLVED';
 type StreamStatus = 'CONNECTING' | 'LIVE' | 'RECONNECTING';
@@ -59,6 +67,7 @@ export default function AgentWorkbenchClient() {
   const [filter, setFilter] = useState<QueueFilter>('ACTIVE');
   const [note, setNote] = useState('');
   const [reply, setReply] = useState('');
+  const [refundDecisionReason, setRefundDecisionReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -278,6 +287,57 @@ export default function AgentWorkbenchClient() {
     }
   }
 
+  async function decideRefund(action: 'APPROVE' | 'REJECT' | 'WITHDRAW') {
+    const refund = selected?.refund;
+    if (
+      !refund ||
+      busy ||
+      !refundApprovalActions(refund.status).includes(action)
+    ) {
+      return;
+    }
+    const reason = refundDecisionReason.trim();
+    if ((action === 'REJECT' || action === 'WITHDRAW') && reason.length < 2) {
+      setError(action === 'REJECT' ? '拒绝退款必须填写原因' : '撤回退款必须填写原因');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const key = crypto.randomUUID();
+      if (action === 'APPROVE') {
+        await approveAgentRefund(refund.id, key);
+        setNotice(`退款申请 ${refund.refund_number} 已通过人工审批，等待客户确认`);
+      } else if (action === 'REJECT') {
+        await rejectAgentRefund(refund.id, key, reason);
+        setNotice(`退款申请 ${refund.refund_number} 已拒绝`);
+      } else {
+        await withdrawAgentRefund(refund.id, key, reason);
+        setNotice(`退款申请 ${refund.refund_number} 已撤回`);
+      }
+      setRefundDecisionReason('');
+      await load();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '退款审批操作失败');
+      try {
+        await load();
+      } catch {
+        // 保留原始审批错误，下一次刷新会读取服务端事实。
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const refundTickets = tickets.filter(
+    (ticket) =>
+      ticket.refund && refundApprovalActions(ticket.refund.status).length > 0,
+  );
+  const pendingRefunds = refundTickets.filter(
+    (ticket) => ticket.refund?.status === 'PENDING_HUMAN_APPROVAL',
+  ).length;
+
   return (
     <main className="min-h-screen bg-[#f4f6f7] text-foreground">
       <header className="border-b bg-white">
@@ -329,11 +389,22 @@ export default function AgentWorkbenchClient() {
           </div>
         )}
 
-        <section className="grid gap-3 sm:grid-cols-3">
+        <section className="grid gap-3 sm:grid-cols-4">
           <QueueMetric label="待受理" value={queued} icon={Inbox} tone="bg-amber-50 text-amber-700" />
           <QueueMetric label="我的处理中" value={inProgress} icon={UserRoundCheck} tone="bg-sky-50 text-sky-700" />
           <QueueMetric label="SLA 风险" value={slaRisk} icon={Clock3} tone="bg-rose-50 text-rose-700" />
+          <QueueMetric label="待审批退款" value={pendingRefunds} icon={ShieldCheck} tone="bg-violet-50 text-violet-700" />
         </section>
+
+        <RefundApprovalQueue
+          tickets={refundTickets}
+          selectedId={selectedId}
+          onSelect={(ticketId) => {
+            setSelectedId(ticketId);
+            setRefundDecisionReason('');
+            setNotice('');
+          }}
+        />
 
         <section className="grid min-h-[640px] gap-5 xl:grid-cols-[360px_minmax(0,1fr)]">
           <Card className="min-h-0">
@@ -371,6 +442,7 @@ export default function AgentWorkbenchClient() {
                           setSelectedId(ticket.id);
                           setNote('');
                           setReply('');
+                          setRefundDecisionReason('');
                           setNotice('');
                         }}
                       />
@@ -398,6 +470,9 @@ export default function AgentWorkbenchClient() {
               onAddNote={addNote}
               onSendReply={sendReply}
               onResolve={resolveTicket}
+              refundDecisionReason={refundDecisionReason}
+              onRefundDecisionReasonChange={setRefundDecisionReason}
+              onRefundDecision={(action) => decideRefund(action)}
             />
           ) : (
             <Card className="grid place-items-center">
@@ -460,6 +535,75 @@ function QueueMetric({
   );
 }
 
+function RefundApprovalQueue({
+  tickets,
+  selectedId,
+  onSelect,
+}: {
+  tickets: AgentTicketData[];
+  selectedId: string;
+  onSelect: (ticketId: string) => void;
+}) {
+  return (
+    <Card data-testid="refund-approval-queue">
+      <CardHeader className="border-b">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <CardTitle>退款人工审批</CardTitle>
+            <CardDescription>
+              仅显示当前坐席可见的待审批/待客户确认退款；操作会进入服务端审计。
+            </CardDescription>
+          </div>
+          <Badge variant="outline">客服专属</Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="pt-4">
+        {tickets.length ? (
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {tickets.map((ticket) => {
+              const refund = ticket.refund;
+              if (!refund) return null;
+              return (
+                <button
+                  key={refund.id}
+                  type="button"
+                  aria-label={`打开退款申请 ${refund.refund_number}`}
+                  className={`rounded-xl border p-3 text-left transition-colors ${
+                    selectedId === ticket.id
+                      ? 'border-primary/30 bg-primary/5'
+                      : 'bg-white hover:bg-muted/50'
+                  }`}
+                  onClick={() => onSelect(ticket.id)}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <span className="text-xs font-semibold">
+                      {refund.refund_number}
+                    </span>
+                    <Badge variant="secondary">
+                      {refundApprovalStatusLabel(refund.status)}
+                    </Badge>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {ticket.customer_name} · {ticket.order_number}
+                  </p>
+                  <p className="mt-2 text-sm font-semibold">¥{refund.amount}</p>
+                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
+                    {refund.reason}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="py-3 text-center text-xs text-muted-foreground">
+            当前没有待审批或待撤回退款。
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function TicketQueueItem({
   ticket,
   active,
@@ -512,6 +656,9 @@ function TicketWorkspace({
   onAddNote,
   onSendReply,
   onResolve,
+  refundDecisionReason,
+  onRefundDecisionReasonChange,
+  onRefundDecision,
 }: {
   ticket: AgentTicketData;
   note: string;
@@ -523,6 +670,11 @@ function TicketWorkspace({
   onAddNote: () => Promise<void>;
   onSendReply: () => Promise<void>;
   onResolve: () => Promise<void>;
+  refundDecisionReason: string;
+  onRefundDecisionReasonChange: (value: string) => void;
+  onRefundDecision: (
+    action: 'APPROVE' | 'REJECT' | 'WITHDRAW',
+  ) => Promise<void>;
 }) {
   return (
     <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -608,7 +760,26 @@ function TicketWorkspace({
             )}
           </section>
 
-          {ticket.work_state === 'QUEUED' ? (
+          {ticket.refund && (
+            <RefundApprovalPanel
+              refund={ticket.refund}
+              reason={refundDecisionReason}
+              busy={busy}
+              onReasonChange={onRefundDecisionReasonChange}
+              onDecision={onRefundDecision}
+            />
+          )}
+
+          {ticket.work_state === 'QUEUED' && ticket.refund ? (
+            <section className="rounded-xl border border-violet-100 bg-violet-50 p-4">
+              <p className="text-sm font-semibold text-violet-950">
+                退款审批不需要先受理普通工单
+              </p>
+              <p className="mt-1 text-xs leading-5 text-violet-900/80">
+                请在上方审批区查看服务端退款事实；通过审批后仍等待客户在客户页面明确确认。
+              </p>
+            </section>
+          ) : ticket.work_state === 'QUEUED' ? (
             <section className="rounded-xl border border-amber-100 bg-amber-50 p-4">
               <p className="text-sm font-semibold text-amber-900">等待坐席受理</p>
               <p className="mt-1 text-xs leading-5 text-amber-800">
@@ -708,6 +879,98 @@ function TicketWorkspace({
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function RefundApprovalPanel({
+  refund,
+  reason,
+  busy,
+  onReasonChange,
+  onDecision,
+}: {
+  refund: RefundData;
+  reason: string;
+  busy: boolean;
+  onReasonChange: (value: string) => void;
+  onDecision: (action: 'APPROVE' | 'REJECT' | 'WITHDRAW') => Promise<void>;
+}) {
+  const actions = refundApprovalActions(refund.status);
+  const needsReason = actions.includes('REJECT') || actions.includes('WITHDRAW');
+  return (
+    <section
+      className="rounded-xl border border-violet-100 bg-violet-50/50 p-4"
+      data-testid="refund-approval-panel"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2 text-sm font-semibold text-violet-950">
+            <ShieldCheck className="size-4 text-violet-700" />
+            退款人工审批
+          </div>
+          <p className="mt-1 text-xs text-violet-900/70">
+            {refund.refund_number} · ¥{refund.amount} · {refund.method}
+          </p>
+        </div>
+        <Badge variant="secondary">{refundApprovalStatusLabel(refund.status)}</Badge>
+      </div>
+      <p className="mt-3 text-sm leading-6 text-violet-950">{refund.reason}</p>
+      {refund.approved_at && (
+        <p className="mt-2 text-xs text-violet-900/70">
+          审批人已绑定，时间：{new Date(refund.approved_at).toLocaleString('zh-CN')}
+        </p>
+      )}
+      {needsReason && (
+        <Textarea
+          className="mt-3 bg-white"
+          aria-label={actions.includes('REJECT') ? '拒绝退款原因' : '撤回退款原因'}
+          value={reason}
+          onChange={(event) => onReasonChange(event.target.value)}
+          placeholder={
+            actions.includes('REJECT')
+              ? '填写拒绝原因（至少 2 个字符）'
+              : '填写撤回原因（至少 2 个字符）'
+          }
+          maxLength={500}
+        />
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        {actions.includes('APPROVE') && (
+          <Button disabled={busy} onClick={() => void onDecision('APPROVE')}>
+            {busy ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+            通过人工审批
+          </Button>
+        )}
+        {actions.includes('REJECT') && (
+          <Button
+            variant="outline"
+            disabled={busy || reason.trim().length < 2}
+            onClick={() => void onDecision('REJECT')}
+          >
+            拒绝退款
+          </Button>
+        )}
+        {actions.includes('WITHDRAW') && (
+          <Button
+            variant="outline"
+            disabled={busy || reason.trim().length < 2}
+            onClick={() => void onDecision('WITHDRAW')}
+          >
+            撤回退款
+          </Button>
+        )}
+        {!actions.length && (
+          <p className="text-xs text-violet-900/70">
+            当前状态不可再审批；如需继续，请以客户页面显示的服务端状态为准。
+          </p>
+        )}
+      </div>
+      {actions.includes('APPROVE') && (
+        <p className="mt-3 text-xs leading-5 text-violet-900/70">
+          通过人工审批不会直接执行退款；客户仍需回到客户页面手动点击“确认退款”。
+        </p>
+      )}
+    </section>
   );
 }
 

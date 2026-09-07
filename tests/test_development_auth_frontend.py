@@ -40,6 +40,41 @@ def test_login_and_staff_navigation_are_role_aware() -> None:
     ).read_text(encoding="utf-8")
 
 
+def test_refund_approval_is_visible_only_in_the_support_agent_workbench() -> None:
+    workbench = (
+        ROOT / "demo" / "app" / "agent" / "workbench-client.tsx"
+    ).read_text(encoding="utf-8")
+    api = API.read_text(encoding="utf-8")
+
+    for label in (
+        "退款人工审批",
+        "通过人工审批",
+        "拒绝退款",
+        "撤回退款",
+        "客户仍需回到客户页面手动点击",
+    ):
+        assert label in workbench
+    for route in (
+        "/api/agent/refund-requests/${refundId}/approve",
+        "/api/agent/refund-requests/${refundId}/reject",
+        "/api/agent/refund-requests/${refundId}/withdraw",
+    ):
+        assert route in api
+    assert "agentRequest<RefundData>" in api
+    assert "Idempotency-Key" in api
+    assert 'allowedRoles={["SUPPORT_AGENT"]}' in (
+        ROOT / "demo" / "app" / "staff" / "agent" / "page.tsx"
+    ).read_text(encoding="utf-8")
+    customer_client = (
+        ROOT / "demo" / "app" / "demo-client.tsx"
+    ).read_text(encoding="utf-8")
+    assert "PENDING_HUMAN_APPROVAL" in customer_client
+    assert "PENDING_CONFIRMATION" in customer_client
+    assert "persistedRefundItems" in customer_client
+    assert "refundNeedsRefresh" in customer_client
+    assert "确认退款" in customer_client
+
+
 def test_platform_identity_adr_is_fail_closed_and_provider_neutral() -> None:
     text = ADR.read_text(encoding="utf-8")
 

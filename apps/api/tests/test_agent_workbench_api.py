@@ -1,5 +1,8 @@
 import json
 
+from serviceops.conversations.service import create_conversation
+from serviceops.identity.service import resolve_customer
+from serviceops.refunds.service import create_refund_request
 from serviceops.seed import (
     AGENT_SESSION_TOKEN,
     OPS_SESSION_TOKEN,
@@ -73,6 +76,32 @@ def test_agent_queue_stream_requires_identity_and_returns_snapshot(client):
     assert event["type"] == "ticket_queue_snapshot"
     assert event["tickets"][0]["id"] == ticket_id
     assert event["tickets"][0]["work_state"] == "QUEUED"
+
+
+def test_agent_queue_exposes_refund_approval_fact_without_customer_write_access(
+    client, db
+):
+    customer = resolve_customer(db, "demo-linmu-session")
+    conversation = create_conversation(db, customer)
+    refund = create_refund_request(
+        db,
+        customer,
+        conversation_id=conversation.id,
+        order_number="ORD-20260828-1042",
+        reason="商品不合适，申请退款",
+    )
+
+    queue = client.get("/api/agent/tickets", headers=AGENT_HEADERS)
+    assert queue.status_code == 200
+    item = next(ticket for ticket in queue.json() if ticket["id"] == refund.ticket_id)
+    assert item["work_state"] == "QUEUED"
+    assert item["refund"]["id"] == refund.id
+    assert item["refund"]["status"] == "PENDING_HUMAN_APPROVAL"
+    assert item["refund"]["approved_by_operator_id"] is None
+
+    customer_view = client.get(f"/api/conversations/{conversation.id}")
+    assert customer_view.status_code == 200
+    assert customer_view.json()["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
 
 
 def test_customer_and_assignee_exchange_visible_ticket_messages(client, other_client):

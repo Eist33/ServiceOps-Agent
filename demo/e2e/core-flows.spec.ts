@@ -386,15 +386,31 @@ test('客户与受理坐席可双向同步工单消息', async ({ page, request,
   ).toBeVisible({ timeout: 7000 });
 });
 
-test('退款必须明确确认后才执行', async ({ page }) => {
+test('退款先经客服网页人工审批，再由客户网页明确确认后执行', async ({
+  page,
+  context,
+}) => {
   await sendNaturalLanguage(
     page,
     '订单 ORD-20260828-1042 我不想要了，帮我申请退款。',
   );
-  await expect(page.getByText('退款确认')).toBeVisible();
+  await expect(page.getByText('等待客服人工审批')).toBeVisible();
   await expect(
     page.getByText('¥329.00', { exact: true }).first(),
   ).toBeVisible();
+
+  const agentPage = await context.newPage();
+  await loginStaff(agentPage, '沈清禾', '/staff/agent');
+  await expect(agentPage.getByTestId('refund-approval-queue')).toBeVisible();
+  await expect(agentPage.getByText('待客服审批')).toBeVisible();
+  await agentPage.getByRole('button', { name: /打开退款申请 RF-/ }).click();
+  await expect(agentPage.getByTestId('refund-approval-panel')).toBeVisible();
+  await agentPage.getByRole('button', { name: '通过人工审批' }).click();
+  await expect(
+    agentPage.getByText(/已通过人工审批，等待客户确认/),
+  ).toBeVisible();
+
+  await expect(page.getByText('退款确认')).toBeVisible({ timeout: 7000 });
   await page.getByRole('button', { name: '确认退款' }).click();
   await expect(page.getByText(/退款已模拟完成/)).toBeVisible();
   await expect(page.getByText('已退款')).toBeVisible();

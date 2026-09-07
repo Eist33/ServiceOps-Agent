@@ -176,6 +176,15 @@ export default function DemoClient() {
     setState(next);
     setOrder(next.active_order);
     if (!next.active_order) setShipping(null);
+    setItems((current) =>
+      current.map((item) => {
+        if (item.kind !== 'approval') return item;
+        const refund = next.refunds.find(
+          (candidate) => candidate.id === item.refundId,
+        );
+        return refund ? { ...item, status: refund.status } : item;
+      }),
+    );
     return next;
   }, []);
 
@@ -206,16 +215,30 @@ export default function DemoClient() {
               );
               setShipping(shippingData);
             }
-            setItems(
-              persisted.messages.length
-                ? persisted.messages.map((message) => ({
-                    id: message.id,
-                    kind: 'message' as const,
-                    role: message.role,
-                    text: message.content,
-                  }))
-                : [welcome],
-            );
+            const persistedItems = persisted.messages.length
+              ? persisted.messages.map((message) => ({
+                  id: message.id,
+                  kind: 'message' as const,
+                  role: message.role,
+                  text: message.content,
+                }))
+              : [welcome];
+            const persistedRefundItems = persisted.refunds
+              .filter((refund) =>
+                ['PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION'].includes(
+                  refund.status,
+                ),
+              )
+              .map((refund) => ({
+                id: `approval-${refund.id}`,
+                kind: 'approval' as const,
+                refundId: refund.id,
+                amount: String(refund.amount),
+                method: refund.method,
+                reason: refund.reason,
+                status: refund.status,
+              }));
+            setItems([...persistedItems, ...persistedRefundItems]);
           } catch {
             await startFreshConversation();
           }
@@ -603,6 +626,10 @@ export default function DemoClient() {
 
   const activeTicket = state?.tickets[0] ?? null;
   const activeRefund = state?.refunds[0] ?? null;
+  const refundNeedsRefresh = [
+    'PENDING_HUMAN_APPROVAL',
+    'PENDING_CONFIRMATION',
+  ].includes(activeRefund?.status ?? '');
   useEffect(() => {
     if (
       !activeTicket ||
@@ -666,8 +693,8 @@ export default function DemoClient() {
   useEffect(() => {
     if (
       !conversationId ||
-      activeTicket?.handoff_status !== 'ASSIGNED' ||
-      activeTicket.status === 'RESOLVED'
+      (activeTicket?.handoff_status !== 'ASSIGNED' && !refundNeedsRefresh) ||
+      activeTicket?.status === 'RESOLVED'
     ) {
       return;
     }
@@ -680,7 +707,9 @@ export default function DemoClient() {
   }, [
     activeTicket?.handoff_status,
     activeTicket?.status,
+    activeRefund?.status,
     conversationId,
+    refundNeedsRefresh,
     refreshState,
   ]);
   return (

@@ -608,6 +608,21 @@ class TicketMessageResponse(BaseModel):
     created_at: datetime
 
 
+class RefundResponse(BaseModel):
+    id: str
+    refund_number: str
+    ticket_id: str
+    order_id: str
+    status: str
+    amount: Decimal
+    method: str
+    reason: str
+    approved_by_operator_id: str | None = None
+    approved_at: datetime | None = None
+    confirmed_at: datetime | None
+    created_at: datetime
+
+
 class AgentTicketResponse(BaseModel):
     id: str
     ticket_number: str
@@ -633,6 +648,9 @@ class AgentTicketResponse(BaseModel):
     updated_at: datetime
     messages: list[TicketMessageResponse] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
+    # Refund facts are only attached to the support-agent workbench response.
+    # Mutations still go through the dedicated approval routes below.
+    refund: RefundResponse | None = None
 
 
 class TicketCreateRequest(BaseModel):
@@ -693,21 +711,6 @@ class RefundCreateRequest(BaseModel):
     order_number: str
     reason: str = Field(min_length=2, max_length=500)
     requested_amount: Decimal | None = Field(default=None, gt=0)
-
-
-class RefundResponse(BaseModel):
-    id: str
-    refund_number: str
-    ticket_id: str
-    order_id: str
-    status: str
-    amount: Decimal
-    method: str
-    reason: str
-    approved_by_operator_id: str | None = None
-    approved_at: datetime | None = None
-    confirmed_at: datetime | None
-    created_at: datetime
 
 
 class RefundDecisionRequest(BaseModel):

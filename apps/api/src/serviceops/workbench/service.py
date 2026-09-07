@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import and_, or_, select, update
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
@@ -9,11 +9,14 @@ from serviceops.models import (
     HandoffStatus,
     Operator,
     Order,
+    RefundRequest,
+    RefundStatus,
     Ticket,
     TicketEvent,
     TicketStatus,
     utcnow,
 )
+from serviceops.refunds.service import refund_response
 from serviceops.shared.errors import ConflictError, NotFoundError, ValidationError
 from serviceops.shared.schemas import AgentTicketResponse
 from serviceops.tickets.service import (
@@ -63,13 +66,25 @@ def workbench_ticket_response(
         )
     )
     support_group = _support_group(ticket)
+    refund_record = None
+    if ticket.ticket_type == "REFUND":
+        refund_record = db.scalar(
+            select(RefundRequest)
+            .where(RefundRequest.ticket_id == ticket.id)
+            .order_by(RefundRequest.created_at.desc())
+        )
+    refund_pending = refund_record is not None and refund_record.status in {
+        RefundStatus.PENDING_HUMAN_APPROVAL.value,
+        RefundStatus.PENDING_CONFIRMATION.value,
+    }
     if ticket.status == TicketStatus.RESOLVED.value:
         work_state = "RESOLVED"
-    elif ticket.assignee_name == support_group:
+    elif ticket.assignee_name == support_group or refund_pending:
         work_state = "QUEUED"
     else:
         work_state = "IN_PROGRESS"
     sla_status, remaining_minutes = ticket_sla(ticket, now=now)
+    refund = refund_response(refund_record) if refund_record is not None else None
     return AgentTicketResponse(
         id=ticket.id,
         ticket_number=ticket.ticket_number,
@@ -103,6 +118,7 @@ def workbench_ticket_response(
             }
             for event in events
         ],
+        refund=refund,
     )
 
 
@@ -114,8 +130,23 @@ def list_workbench_tickets(
         db.scalars(
             select(Ticket)
             .where(
-                Ticket.handoff_status.in_(
-                    [HandoffStatus.ASSIGNED.value, HandoffStatus.COMPLETED.value]
+                or_(
+                    Ticket.handoff_status.in_(
+                        [HandoffStatus.ASSIGNED.value, HandoffStatus.COMPLETED.value]
+                    ),
+                    and_(
+                        Ticket.ticket_type == "REFUND",
+                        Ticket.id.in_(
+                            select(RefundRequest.ticket_id).where(
+                                RefundRequest.status.in_(
+                                    [
+                                        RefundStatus.PENDING_HUMAN_APPROVAL.value,
+                                        RefundStatus.PENDING_CONFIRMATION.value,
+                                    ]
+                                )
+                            )
+                        ),
+                    ),
                 )
             )
             .order_by(Ticket.updated_at.desc())
