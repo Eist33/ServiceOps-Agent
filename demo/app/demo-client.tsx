@@ -178,9 +178,12 @@ export default function DemoClient() {
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const refreshRequestRef = useRef(0);
 
   const refreshState = useCallback(async (id: string) => {
+    const requestId = ++refreshRequestRef.current;
     const next = await loadConversation(id);
+    if (requestId !== refreshRequestRef.current) return next;
     setState(next);
     setOrder(next.active_order);
     if (!next.active_order) setShipping(null);
