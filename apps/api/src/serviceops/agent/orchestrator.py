@@ -757,7 +757,7 @@ class DeterministicSupportAgent:
                 ticket_id=refund.ticket_id,
                 refund_request_id=refund.id,
                 payload={
-                    "approval_type": "refund_confirmation",
+                    "approval_type": "refund_human_approval",
                     "refund_number": refund.refund_number,
                     "amount": str(refund.amount),
                     "method": refund.method,
@@ -767,4 +767,4 @@ class DeterministicSupportAgent:
             )
         )
         clear_pending_action(self.db, self.customer, conversation_id)
-        return f"已为订单 {order.order_number} 创建待确认退款申请 {refund.refund_number}，金额 ¥{refund.amount}。只有你明确确认后，后端才会模拟执行退款。"
+        return f"已为订单 {order.order_number} 创建待人工审批退款申请 {refund.refund_number}，金额 ¥{refund.amount}。客服人工审批通过后，还需要你明确确认，后端才会模拟执行退款。"

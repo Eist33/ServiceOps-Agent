@@ -71,6 +71,7 @@ def create_ticket(
     reason: str,
     evidence: dict | None = None,
     now: datetime | None = None,
+    commit: bool = True,
 ) -> Ticket:
     if ticket_type not in TICKET_ROUTING:
         raise ValidationError("INVALID_TICKET_TYPE", "不支持的工单类型")
@@ -118,8 +119,9 @@ def create_ticket(
             actor="agent",
         )
     )
-    db.commit()
-    db.refresh(ticket)
+    if commit:
+        db.commit()
+        db.refresh(ticket)
     return ticket
 
 

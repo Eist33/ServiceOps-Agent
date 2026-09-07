@@ -704,8 +704,14 @@ class RefundResponse(BaseModel):
     amount: Decimal
     method: str
     reason: str
+    approved_by_operator_id: str | None = None
+    approved_at: datetime | None = None
     confirmed_at: datetime | None
     created_at: datetime
+
+
+class RefundDecisionRequest(BaseModel):
+    reason: str | None = Field(default=None, min_length=2, max_length=500)
 
 
 class OrderResponse(BaseModel):

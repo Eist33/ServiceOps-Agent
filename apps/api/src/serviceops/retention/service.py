@@ -13,6 +13,7 @@ from serviceops.models import (
     Message,
     ModelInvocation,
     OperationsAlertAcknowledgement,
+    RefundApprovalAudit,
     RefundRequest,
     RetentionRun,
     SecurityAuditEvent,
@@ -138,6 +139,7 @@ def _purge_expired_data(
         "ticket_events": 0,
         "customer_feedback": 0,
         "refund_requests": 0,
+        "refund_approval_audits": 0,
         "operations_alert_acknowledgements": 0,
         "idempotency_records": 0,
         "tickets": 0,
@@ -204,6 +206,12 @@ def _purge_expired_data(
         db,
         select(RefundRequest.id).where(RefundRequest.ticket_id.in_(old_ticket_ids)),
     )
+    old_refund_audit_ids = _ids(
+        db,
+        select(RefundApprovalAudit.id).where(
+            RefundApprovalAudit.refund_request_id.in_(old_refund_ids)
+        ),
+    )
     old_acknowledgement_ids = _ids(
         db,
         select(OperationsAlertAcknowledgement.id).where(
@@ -220,6 +228,9 @@ def _purge_expired_data(
     )
     deleted["ticket_events"] = _delete_ids(db, TicketEvent, old_ticket_event_ids)
     deleted["customer_feedback"] = _delete_ids(db, CustomerSatisfactionFeedback, old_feedback_ids)
+    deleted["refund_approval_audits"] = _delete_ids(
+        db, RefundApprovalAudit, old_refund_audit_ids
+    )
     deleted["refund_requests"] = _delete_ids(db, RefundRequest, old_refund_ids)
     deleted["operations_alert_acknowledgements"] = _delete_ids(
         db, OperationsAlertAcknowledgement, old_acknowledgement_ids

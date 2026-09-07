@@ -95,6 +95,7 @@ type TimelineItem =
       amount: string;
       method: string;
       reason: string;
+      status: string;
     }
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'notice'; text: string };
@@ -135,7 +136,7 @@ function toolSummary(result?: Record<string, unknown>) {
   if (result.ticket_number)
     return `已创建 ${displayValue(result.ticket_type)} 工单 ${displayValue(result.ticket_number)}`;
   if (result.refund_number)
-    return `已创建待确认退款 ${displayValue(result.refund_number)}`;
+    return `已创建待人工审批退款 ${displayValue(result.refund_number)}`;
   if (result.abnormal)
     return `检测到“${displayValue(result.abnormal_reason)}”异常 · 停滞 ${displayValue(result.stale_hours)} 小时`;
   if (result.order_number)
@@ -294,6 +295,10 @@ export default function DemoClient() {
           amount: String(event.payload.amount),
           method: String(event.payload.method),
           reason: String(event.payload.reason),
+          status:
+            typeof event.payload.status === 'string'
+              ? event.payload.status
+              : 'PENDING_HUMAN_APPROVAL',
         },
       ]);
     } else if (event.type === 'model_fallback') {
@@ -1002,7 +1007,8 @@ function TimelineEntry({
     <div className="ml-11 overflow-hidden rounded-2xl border border-rose-100 bg-white shadow-sm">
       <div className="border-b border-rose-100 bg-rose-50/70 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-rose-800">
-          <ReceiptText className="size-4" /> 退款确认
+          <ReceiptText className="size-4" />
+          {item.status === 'PENDING_HUMAN_APPROVAL' ? '等待客服人工审批' : '退款确认'}
         </div>
       </div>
       <div className="grid gap-3 p-4 text-xs sm:grid-cols-3">
@@ -1019,14 +1025,21 @@ function TimelineEntry({
           <p className="mt-1 font-medium">{item.reason}</p>
         </div>
       </div>
+      {item.status === 'PENDING_HUMAN_APPROVAL' && (
+        <p className="px-4 pt-3 text-xs leading-5 text-amber-700">
+          申请已创建，客服人工审批通过后才能确认退款；当前不会执行任何退款操作。
+        </p>
+      )}
       <div className="flex gap-2 border-t bg-[#fbfcfc] px-4 py-3">
-        <Button
-          size="sm"
-          disabled={busy}
-          onClick={() => void onConfirm(item.refundId)}
-        >
-          <Check /> 确认退款
-        </Button>
+        {item.status === 'PENDING_CONFIRMATION' && (
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={() => void onConfirm(item.refundId)}
+          >
+            <Check /> 确认退款
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -1301,15 +1314,18 @@ function StatusBadge({ status }: { status: string }) {
     OPEN: '处理中',
     WAITING_APPROVAL: '等待确认',
     RESOLVED: '已解决',
-    PENDING_CONFIRMATION: '等待确认',
+    PENDING_HUMAN_APPROVAL: '等待人工审批',
+    PENDING_CONFIRMATION: '等待客户确认',
     PROCESSING: '处理中',
     SUCCEEDED: '已退款',
     CANCELLED: '已取消',
     FAILED: '失败',
+    REJECTED: '已拒绝',
+    WITHDRAWN: '已撤回',
   };
   const classes = ['RESOLVED', 'SUCCEEDED'].includes(status)
     ? 'bg-emerald-50 text-emerald-700'
-    : ['WAITING_APPROVAL', 'PENDING_CONFIRMATION'].includes(status)
+    : ['WAITING_APPROVAL', 'PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION'].includes(status)
       ? 'bg-rose-50 text-rose-700'
       : ['OPEN', 'PROCESSING'].includes(status)
         ? 'bg-amber-50 text-amber-700'

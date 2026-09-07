@@ -90,7 +90,13 @@ from serviceops.operations.service import (
 from serviceops.operations.streaming import stream_operations_alerts
 from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.production.governance import production_governance_report
-from serviceops.refunds.service import cancel_refund, confirm_refund
+from serviceops.refunds.service import (
+    approve_refund,
+    cancel_refund,
+    confirm_refund,
+    reject_refund,
+    withdraw_refund,
+)
 from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
 from serviceops.shared.schemas import (
@@ -136,6 +142,7 @@ from serviceops.shared.schemas import (
     OrderResponse,
     ProductionGovernanceResponse,
     ProductionReleaseGateRequest,
+    RefundDecisionRequest,
     RefundResponse,
     ShippingResponse,
     TicketCreateRequest,
@@ -1153,6 +1160,35 @@ def create_app() -> FastAPI:
         customer: Customer = Depends(current_customer),
     ):
         return confirm_refund(db, customer, refund_id, idempotency_key or "")
+
+    @app.post("/api/agent/refund-requests/{refund_id}/approve", response_model=RefundResponse)
+    def approve_refund_endpoint(
+        refund_id: str,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return approve_refund(db, operator, refund_id, idempotency_key or "")
+
+    @app.post("/api/agent/refund-requests/{refund_id}/reject", response_model=RefundResponse)
+    def reject_refund_endpoint(
+        refund_id: str,
+        body: RefundDecisionRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return reject_refund(db, operator, refund_id, idempotency_key or "", body.reason)
+
+    @app.post("/api/agent/refund-requests/{refund_id}/withdraw", response_model=RefundResponse)
+    def withdraw_refund_endpoint(
+        refund_id: str,
+        body: RefundDecisionRequest,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return withdraw_refund(db, operator, refund_id, idempotency_key or "", body.reason)
 
     @app.post("/api/refund-requests/{refund_id}/cancel", response_model=RefundResponse)
     def cancel_refund_endpoint(

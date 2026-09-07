@@ -130,7 +130,12 @@ def operations_dashboard(
         refunds={
             "total": len(refunds),
             "pending": sum(
-                refund.status == RefundStatus.PENDING_CONFIRMATION.value for refund in refunds
+                refund.status
+                in {
+                    RefundStatus.PENDING_HUMAN_APPROVAL.value,
+                    RefundStatus.PENDING_CONFIRMATION.value,
+                }
+                for refund in refunds
             ),
             "succeeded": len(succeeded_refunds),
             "cancelled": sum(

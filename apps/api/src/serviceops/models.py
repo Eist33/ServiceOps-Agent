@@ -17,6 +17,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
@@ -63,10 +64,13 @@ class HandoffStatus(StrEnum):
 
 
 class RefundStatus(StrEnum):
+    PENDING_HUMAN_APPROVAL = "PENDING_HUMAN_APPROVAL"
     PENDING_CONFIRMATION = "PENDING_CONFIRMATION"
     PROCESSING = "PROCESSING"
     SUCCEEDED = "SUCCEEDED"
     CANCELLED = "CANCELLED"
+    REJECTED = "REJECTED"
+    WITHDRAWN = "WITHDRAWN"
     FAILED = "FAILED"
 
 
@@ -593,20 +597,70 @@ class CustomerSatisfactionFeedback(Base):
 
 class RefundRequest(Base):
     __tablename__ = "refund_requests"
+    __table_args__ = (
+        Index(
+            "uq_refund_requests_customer_order_active",
+            "customer_id",
+            "order_id",
+            unique=True,
+            sqlite_where=text(
+                "status IN ('PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION', "
+                "'PROCESSING', 'SUCCEEDED')"
+            ),
+            postgresql_where=text(
+                "status IN ('PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION', "
+                "'PROCESSING', 'SUCCEEDED')"
+            ),
+        ),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
     refund_number: Mapped[str] = mapped_column(String(40), unique=True, index=True)
     customer_id: Mapped[str] = mapped_column(ForeignKey("customers.id"), index=True)
     order_id: Mapped[str] = mapped_column(ForeignKey("orders.id"), index=True)
     ticket_id: Mapped[str] = mapped_column(ForeignKey("tickets.id"), index=True)
-    status: Mapped[str] = mapped_column(String(40), default=RefundStatus.PENDING_CONFIRMATION.value)
+    status: Mapped[str] = mapped_column(
+        String(40), default=RefundStatus.PENDING_HUMAN_APPROVAL.value
+    )
     reason: Mapped[str] = mapped_column(String(500))
     amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
     method: Mapped[str] = mapped_column(String(80), default="原路退回")
     version: Mapped[int] = mapped_column(default=1)
+    approved_by_operator_id: Mapped[str | None] = mapped_column(
+        ForeignKey("operators.id"), nullable=True, index=True
+    )
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RefundApprovalAudit(Base):
+    __tablename__ = "refund_approval_audits"
+    __table_args__ = (
+        UniqueConstraint(
+            "refund_request_id",
+            "idempotency_key",
+            name="uq_refund_approval_refund_key",
+        ),
+        Index(
+            "ix_refund_approval_audits_refund_created",
+            "refund_request_id",
+            "created_at",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    refund_request_id: Mapped[str] = mapped_column(
+        ForeignKey("refund_requests.id"), index=True
+    )
+    operator_id: Mapped[str] = mapped_column(ForeignKey("operators.id"), index=True)
+    decision: Mapped[str] = mapped_column(String(30))
+    reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    idempotency_key: Mapped[str] = mapped_column(String(160))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 class ToolInvocation(Base):

@@ -278,7 +278,7 @@ def create_refund_request(
             ticket_id=result.ticket_id,
             refund_request_id=result.id,
             payload={
-                "approval_type": "refund_confirmation",
+                "approval_type": "refund_human_approval",
                 "refund_number": result.refund_number,
                 "amount": str(result.amount),
                 "method": result.method,

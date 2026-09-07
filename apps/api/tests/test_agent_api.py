@@ -4,6 +4,7 @@ from sqlalchemy import select
 
 from serviceops.identity.service import resolve_customer
 from serviceops.models import Order, ShippingEvent
+from serviceops.seed import AGENT_SESSION_TOKEN
 
 
 def new_conversation(client):
@@ -252,7 +253,7 @@ def test_refund_flow_requires_approval(client):
     approval = next(event for event in events if event["type"] == "approval_required")
     assert approval["payload"]["amount"] == "329.00"
     state = client.get(f"/api/conversations/{conversation_id}").json()
-    assert state["refunds"][0]["status"] == "PENDING_CONFIRMATION"
+    assert state["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
 
 
 def test_refund_missing_reason_is_asked_and_resumed_on_next_turn(client):
@@ -390,6 +391,15 @@ def test_refund_api_is_idempotent(client):
     refund_id = next(
         event["refund_request_id"] for event in events if event["type"] == "approval_required"
     )
+    approval = client.post(
+        f"/api/agent/refund-requests/{refund_id}/approve",
+        headers={
+            "X-Agent-Session": AGENT_SESSION_TOKEN,
+            "Idempotency-Key": "agent-approval-key",
+        },
+    )
+    assert approval.status_code == 200
+    assert approval.json()["status"] == "PENDING_CONFIRMATION"
     first = client.post(
         f"/api/refund-requests/{refund_id}/confirm", headers={"Idempotency-Key": "api-key"}
     )
@@ -409,6 +419,25 @@ def test_refund_api_rejects_missing_key(client):
     response = client.post(f"/api/refund-requests/{refund_id}/confirm")
     assert response.status_code == 422
     assert response.json()["error"]["code"] == "INVALID_IDEMPOTENCY_KEY"
+
+
+def test_refund_api_requires_support_agent_approval(client):
+    conversation_id = new_conversation(client)
+    events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
+    refund_id = next(
+        event["refund_request_id"] for event in events if event["type"] == "approval_required"
+    )
+    response = client.post(
+        f"/api/agent/refund-requests/{refund_id}/approve",
+        headers={"Idempotency-Key": "unapproved-key"},
+    )
+    assert response.status_code == 403
+    response = client.post(
+        f"/api/refund-requests/{refund_id}/confirm",
+        headers={"Idempotency-Key": "customer-key"},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "REFUND_HUMAN_APPROVAL_REQUIRED"
 
 
 def test_conversation_refresh_restores_messages_and_audit(client):
@@ -453,6 +482,13 @@ def test_demo_reset_restores_repeatable_state(client):
     events = run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
     refund_id = next(
         event["refund_request_id"] for event in events if event["type"] == "approval_required"
+    )
+    client.post(
+        f"/api/agent/refund-requests/{refund_id}/approve",
+        headers={
+            "X-Agent-Session": AGENT_SESSION_TOKEN,
+            "Idempotency-Key": "reset-approval-key",
+        },
     )
     client.post(
         f"/api/refund-requests/{refund_id}/confirm", headers={"Idempotency-Key": "reset-key"}

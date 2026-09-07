@@ -415,6 +415,7 @@ def test_purge_removes_expired_bodies_for_all_customers_and_keeps_live_data(db):
         "tool_invocations": 1,
         "ticket_events": 1,
         "customer_feedback": 1,
+        "refund_approval_audits": 0,
         "refund_requests": 1,
         "operations_alert_acknowledgements": 1,
         "idempotency_records": 2,
