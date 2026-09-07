@@ -107,6 +107,7 @@ def create_refund_request(
     order_number: str,
     reason: str,
     requested_amount: Decimal | None = None,
+    reuse_existing: bool = True,
 ) -> RefundRequest:
     order = get_order(db, customer, order_number)
     locked_order = db.scalar(select(Order).where(Order.id == order.id).with_for_update())
@@ -118,6 +119,11 @@ def create_refund_request(
     # after the order's refundable balance has been reduced to zero.
     existing = _active_refund(db, customer.id, order.id)
     if existing:
+        if not reuse_existing:
+            raise ConflictError(
+                "REFUND_TARGET_CONFLICT",
+                "该订单已有活动退款操作，不能从其他意图重复创建",
+            )
         return existing
 
     amount = requested_amount if requested_amount is not None else order.refundable_amount
@@ -154,10 +160,15 @@ def create_refund_request(
     db.add(refund)
     try:
         db.commit()
-    except IntegrityError:
+    except IntegrityError as err:
         db.rollback()
         existing = _active_refund(db, customer.id, order.id)
         if existing:
+            if not reuse_existing:
+                raise ConflictError(
+                    "REFUND_TARGET_CONFLICT",
+                    "该订单已有并发退款操作，不能从其他意图重复创建",
+                ) from err
             return existing
         raise ConflictError(
             "REFUND_TARGET_CONFLICT",

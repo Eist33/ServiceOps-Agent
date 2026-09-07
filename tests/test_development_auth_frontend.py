@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 API = ROOT / "demo" / "lib" / "api.ts"
 AUTH_SESSION = ROOT / "demo" / "lib" / "auth-session.ts"
@@ -73,6 +72,45 @@ def test_refund_approval_is_visible_only_in_the_support_agent_workbench() -> Non
     assert "persistedRefundItems" in customer_client
     assert "refundNeedsRefresh" in customer_client
     assert "确认退款" in customer_client
+
+
+def test_customer_refund_status_is_server_canonical_and_staff_can_change_intent() -> None:
+    workbench = (
+        ROOT / "demo" / "app" / "agent" / "workbench-client.tsx"
+    ).read_text(encoding="utf-8")
+    customer_client = (
+        ROOT / "demo" / "app" / "demo-client.tsx"
+    ).read_text(encoding="utf-8")
+    api = API.read_text(encoding="utf-8")
+
+    assert "/api/agent/tickets/${ticketId}/intent" in api
+    assert "changeAgentTicketIntent" in workbench
+    assert "intent: 'REFUND'" in workbench
+    assert "intent-change-panel" in workbench
+    assert "intent_history" in api
+    assert "current_intent" in api
+    assert "status: 'PENDING_HUMAN_APPROVAL'" in customer_client
+    assert "退款状态：${refundStatusLabel(item.status)}" in customer_client
+    assert "state?.refunds.find((refund) => refund.ticket_id === activeTicket?.id)" in customer_client
+    assert "event.payload.status" not in customer_client
+
+
+def test_conversation_intent_migration_is_reversible_and_auditable() -> None:
+    migration = (
+        ROOT
+        / "apps"
+        / "api"
+        / "alembic"
+        / "versions"
+        / "20260907_0016_conversation_intent_history.py"
+    ).read_text(encoding="utf-8")
+
+    assert 'revision = "20260907_0016"' in migration
+    assert 'down_revision = "20260907_0015"' in migration
+    assert '"current_intent"' in migration
+    assert '"conversation_intent_events"' in migration
+    assert '"uq_conversation_intent_message"' in migration
+    assert 'def downgrade()' in migration
 
 
 def test_platform_identity_adr_is_fail_closed_and_provider_neutral() -> None:

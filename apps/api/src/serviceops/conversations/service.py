@@ -1,6 +1,7 @@
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
+from serviceops.conversations.intents import intent_history_snapshots
 from serviceops.models import (
     Conversation,
     Customer,
@@ -228,7 +229,10 @@ def conversation_state(db: Session, customer: Customer, conversation_id: str) ->
             "updated_at": conversation.updated_at.isoformat(),
             "order_selection_pending": conversation.order_selection_pending,
             "pending_action": conversation.pending_action,
+            "current_intent": conversation.current_intent,
         },
+        "current_intent": conversation.current_intent,
+        "intent_history": intent_history_snapshots(db, conversation.id),
         "active_order": order_snapshot(active_order) if active_order else None,
         "order_selection": {
             "required": conversation.order_selection_pending,

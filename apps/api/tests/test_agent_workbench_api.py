@@ -104,6 +104,95 @@ def test_agent_queue_exposes_refund_approval_fact_without_customer_write_access(
     assert customer_view.json()["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
 
 
+def test_support_agent_can_change_shipping_ticket_to_refund_without_overwriting_history(
+    client,
+):
+    conversation_id = client.post("/api/conversations").json()["id"]
+    ticket = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞，需要客服继续跟进",
+        },
+    ).json()
+    handed_off = client.post(f"/api/tickets/{ticket['id']}/handoff")
+    assert handed_off.status_code == 200
+
+    changed = client.post(
+        f"/api/agent/tickets/{ticket['id']}/intent",
+        headers=AGENT_HEADERS,
+        json={"intent": "REFUND", "reason": "客户补充提出商品不合适"},
+    )
+    assert changed.status_code == 200
+    refund_ticket = changed.json()
+    assert refund_ticket["id"] != ticket["id"]
+    assert refund_ticket["ticket_type"] == "REFUND"
+    assert refund_ticket["refund"]["status"] == "PENDING_HUMAN_APPROVAL"
+    assert refund_ticket["current_intent"] == "REFUND"
+    assert [item["intent"] for item in refund_ticket["intent_history"]][-2:] == [
+        "SHIPPING_TICKET",
+        "REFUND",
+    ]
+
+    queue = client.get("/api/agent/tickets", headers=AGENT_HEADERS).json()
+    original = next(item for item in queue if item["id"] == ticket["id"])
+    assert original["ticket_type"] == "SHIPPING"
+    assert any(event["action"] == "INTENT_CHANGED" for event in original["events"])
+
+    customer_view = client.get(f"/api/conversations/{conversation_id}").json()
+    assert customer_view["current_intent"] == "REFUND"
+    assert customer_view["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
+    assert [item["intent"] for item in customer_view["intent_history"]][-2:] == [
+        "SHIPPING_TICKET",
+        "REFUND",
+    ]
+
+
+def test_support_agent_intent_change_rejects_duplicate_or_cross_order_refund(
+    client,
+):
+    conversation_id = client.post("/api/conversations").json()["id"]
+    ticket = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "物流停滞，需要客服继续跟进",
+        },
+    ).json()
+    client.post(f"/api/tickets/{ticket['id']}/handoff")
+
+    first = client.post(
+        f"/api/agent/tickets/{ticket['id']}/intent",
+        headers=AGENT_HEADERS,
+        json={"intent": "REFUND", "reason": "客户补充提出商品不合适"},
+    )
+    assert first.status_code == 200
+
+    duplicate = client.post(
+        f"/api/agent/tickets/{ticket['id']}/intent",
+        headers=AGENT_HEADERS,
+        json={"intent": "REFUND", "reason": "再次申请退款"},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["error"]["code"] == "REFUND_INTENT_ALREADY_ACTIVE"
+
+    mismatch = client.post(
+        f"/api/agent/tickets/{ticket['id']}/intent",
+        headers=AGENT_HEADERS,
+        json={
+            "intent": "REFUND",
+            "reason": "错误订单不能覆盖",
+            "order_number": "ORD-20260902-3188",
+        },
+    )
+    assert mismatch.status_code == 409
+    assert mismatch.json()["error"]["code"] == "INTENT_ORDER_MISMATCH"
+
+
 def test_customer_and_assignee_exchange_visible_ticket_messages(client, other_client):
     conversation_id = client.post("/api/conversations").json()["id"]
     ticket = client.post(

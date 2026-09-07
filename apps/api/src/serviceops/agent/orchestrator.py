@@ -14,6 +14,7 @@ from serviceops.agent.intent import (
     refund_reason_reply_from,
 )
 from serviceops.audit.service import record_invocation
+from serviceops.conversations.intents import record_intent_event
 from serviceops.conversations.service import (
     add_message,
     clear_pending_action,
@@ -98,6 +99,11 @@ class DeterministicSupportAgent:
             ):
                 reason = refund_reason_reply_from(content)
                 if reason:
+                    self._record_intent(
+                        conversation_id,
+                        user_message.id,
+                        CustomerIntent.REFUND,
+                    )
                     answer = self._refund_flow(
                         events,
                         trace_id,
@@ -125,6 +131,11 @@ class DeterministicSupportAgent:
                     )
                     answers: list[str] = []
                     for intent in intents:
+                        self._record_intent(
+                            conversation_id,
+                            user_message.id,
+                            intent,
+                        )
                         answers.append(
                             self._dispatch_intent(
                                 intent,
@@ -201,6 +212,27 @@ class DeterministicSupportAgent:
                 )
             )
         return events
+
+    def _record_intent(
+        self,
+        conversation_id: str,
+        message_id: str,
+        intent: CustomerIntent,
+        *,
+        related_ticket_id: str | None = None,
+        related_refund_id: str | None = None,
+    ) -> None:
+        record_intent_event(
+            self.db,
+            conversation_id,
+            intent.value,
+            actor="agent",
+            source="CUSTOMER_MESSAGE",
+            message_id=message_id,
+            related_ticket_id=related_ticket_id,
+            related_refund_id=related_refund_id,
+            detail=f"客户消息识别为{intent.value}意图",
+        )
 
     def _dispatch_intent(
         self,
@@ -701,6 +733,15 @@ class DeterministicSupportAgent:
         *,
         supplied_reason: str | None = None,
     ) -> str:
+        intent_event = record_intent_event(
+            self.db,
+            conversation_id,
+            CustomerIntent.REFUND.value,
+            actor="agent",
+            source="CUSTOMER_MESSAGE",
+            message_id=message_id,
+            detail="客户消息进入退款处理流程",
+        )
         order, blocker = self._resolve_order(
             events,
             trace_id=trace_id,
@@ -747,6 +788,18 @@ class DeterministicSupportAgent:
                 requested_amount=Decimal(order.refundable_amount),
             ),
         )
+        if intent_event.related_ticket_id != refund.ticket_id or intent_event.related_refund_id != refund.id:
+            record_intent_event(
+                self.db,
+                conversation_id,
+                CustomerIntent.REFUND.value,
+                actor="agent",
+                source="CUSTOMER_MESSAGE",
+                message_id=message_id,
+                related_ticket_id=refund.ticket_id,
+                related_refund_id=refund.id,
+                detail="退款申请已关联新的退款处理事项",
+            )
         events.append(
             AgentEvent(
                 type=EventType.APPROVAL_REQUIRED,

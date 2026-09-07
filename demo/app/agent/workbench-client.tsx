@@ -37,6 +37,7 @@ import {
   acceptAgentTicket,
   addAgentTicketNote,
   approveAgentRefund,
+  changeAgentTicketIntent,
   getAgentProfile,
   listAgentTickets,
   rejectAgentRefund,
@@ -68,6 +69,7 @@ export default function AgentWorkbenchClient() {
   const [note, setNote] = useState('');
   const [reply, setReply] = useState('');
   const [refundDecisionReason, setRefundDecisionReason] = useState('');
+  const [intentReason, setIntentReason] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -330,6 +332,39 @@ export default function AgentWorkbenchClient() {
     }
   }
 
+  async function changeIntentToRefund() {
+    if (!selected || selected.ticket_type === 'REFUND' || busy) return;
+    const reason = intentReason.trim();
+    if (reason.length < 2) {
+      setError('转为退款意图必须填写原因');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const updated = await changeAgentTicketIntent(selected.id, {
+        intent: 'REFUND',
+        reason,
+        order_number: selected.order_number,
+      });
+      updateTicket(updated);
+      setIntentReason('');
+      setNotice(`已创建退款处理事项 ${updated.refund?.refund_number ?? ''}，等待人工审批`);
+      await load();
+      setSelectedId(updated.id);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '变更客户意图失败');
+      try {
+        await load();
+      } catch {
+        // 保留原始错误，实时队列会继续提供服务端事实。
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   const refundTickets = tickets.filter(
     (ticket) =>
       ticket.refund && refundApprovalActions(ticket.refund.status).length > 0,
@@ -443,6 +478,7 @@ export default function AgentWorkbenchClient() {
                           setNote('');
                           setReply('');
                           setRefundDecisionReason('');
+                          setIntentReason('');
                           setNotice('');
                         }}
                       />
@@ -473,6 +509,9 @@ export default function AgentWorkbenchClient() {
               refundDecisionReason={refundDecisionReason}
               onRefundDecisionReasonChange={setRefundDecisionReason}
               onRefundDecision={(action) => decideRefund(action)}
+              intentReason={intentReason}
+              onIntentReasonChange={setIntentReason}
+              onChangeIntentToRefund={changeIntentToRefund}
             />
           ) : (
             <Card className="grid place-items-center">
@@ -659,6 +698,9 @@ function TicketWorkspace({
   refundDecisionReason,
   onRefundDecisionReasonChange,
   onRefundDecision,
+  intentReason,
+  onIntentReasonChange,
+  onChangeIntentToRefund,
 }: {
   ticket: AgentTicketData;
   note: string;
@@ -675,6 +717,9 @@ function TicketWorkspace({
   onRefundDecision: (
     action: 'APPROVE' | 'REJECT' | 'WITHDRAW',
   ) => Promise<void>;
+  intentReason: string;
+  onIntentReasonChange: (value: string) => void;
+  onChangeIntentToRefund: () => Promise<void>;
 }) {
   return (
     <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
@@ -768,6 +813,60 @@ function TicketWorkspace({
               onReasonChange={onRefundDecisionReasonChange}
               onDecision={onRefundDecision}
             />
+          )}
+
+          {ticket.ticket_type !== 'REFUND' && (
+            <section
+              className="rounded-xl border border-indigo-100 bg-indigo-50/50 p-4"
+              data-testid="intent-change-panel"
+            >
+              <div className="flex items-center gap-2 text-sm font-semibold text-indigo-950">
+                <RefreshCw className="size-4 text-indigo-700" /> 客户意图变更
+              </div>
+              <p className="mt-1 text-xs leading-5 text-indigo-900/80">
+                保留当前 {ticket.ticket_type} 工单和审计记录，在同一会话/订单下新建独立退款处理事项。
+              </p>
+              <Textarea
+                className="mt-3 bg-white"
+                aria-label="退款意图原因"
+                value={intentReason}
+                onChange={(event) => onIntentReasonChange(event.target.value)}
+                placeholder="例如：客户补充提出商品不合适，申请退款（至少 2 个字符）"
+                maxLength={500}
+              />
+              <Button
+                className="mt-3"
+                variant="outline"
+                disabled={busy || intentReason.trim().length < 2}
+                onClick={() => void onChangeIntentToRefund()}
+              >
+                {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                转为退款意图
+              </Button>
+            </section>
+          )}
+
+          {ticket.intent_history.length > 0 && (
+            <section className="rounded-xl border p-4" data-testid="staff-intent-history">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-semibold">意图历史</p>
+                <Badge variant="outline">当前：{ticket.current_intent ?? '未识别'}</Badge>
+              </div>
+              <div className="mt-3 space-y-2 border-t pt-3">
+                {ticket.intent_history.slice(-5).map((event) => (
+                  <div className="text-xs leading-5" key={event.id}>
+                    <p className="font-medium">
+                      {event.previous_intent
+                        ? `${event.previous_intent} → ${event.intent}`
+                        : event.intent}
+                    </p>
+                    <p className="text-muted-foreground">
+                      {event.detail} · {event.actor}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </section>
           )}
 
           {ticket.work_state === 'QUEUED' && ticket.refund ? (

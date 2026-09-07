@@ -420,6 +420,7 @@ def test_purge_removes_expired_bodies_for_all_customers_and_keeps_live_data(db):
         "operations_alert_acknowledgements": 1,
         "idempotency_records": 2,
         "tickets": 1,
+        "conversation_intent_events": 0,
     }
     assert report.anonymized == {"security_audit_events": 2}
 

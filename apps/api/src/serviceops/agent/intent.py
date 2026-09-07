@@ -114,6 +114,7 @@ def refund_reason_from(content: str) -> str | None:
             return reason[:500] if reason else None
     reason_terms = (
         "不想要",
+        "不合适",
         "质量",
         "破损",
         "损坏",

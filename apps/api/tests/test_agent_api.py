@@ -256,6 +256,29 @@ def test_refund_flow_requires_approval(client):
     assert state["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
 
 
+def test_customer_intent_history_preserves_shipping_before_refund(client):
+    conversation_id = new_conversation(client)
+    shipping = run_agent(client, conversation_id, "订单 ORD-20260828-1042 的物流到哪了？")
+    assert "approval_required" not in event_types(shipping)
+    after_shipping = client.get(f"/api/conversations/{conversation_id}").json()
+    assert after_shipping["current_intent"] == "SHIPPING"
+    assert after_shipping["intent_history"][-1]["intent"] == "SHIPPING"
+
+    refund = run_agent(
+        client,
+        conversation_id,
+        "订单 ORD-20260828-1042 商品不合适，申请退款",
+    )
+    assert "approval_required" in event_types(refund)
+    after_refund = client.get(f"/api/conversations/{conversation_id}").json()
+    assert after_refund["current_intent"] == "REFUND"
+    assert [item["intent"] for item in after_refund["intent_history"]][-2:] == [
+        "SHIPPING",
+        "REFUND",
+    ]
+    assert after_refund["refunds"][0]["status"] == "PENDING_HUMAN_APPROVAL"
+
+
 def test_refund_missing_reason_is_asked_and_resumed_on_next_turn(client):
     conversation_id = new_conversation(client)
     client.post(

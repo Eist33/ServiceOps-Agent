@@ -95,7 +95,10 @@ export type ConversationState = {
     updated_at: string;
     order_selection_pending: boolean;
     pending_action: string | null;
+    current_intent: string | null;
   };
+  current_intent: string | null;
+  intent_history: IntentHistoryData[];
   active_order: OrderData | null;
   order_selection: {
     required: boolean;
@@ -385,6 +388,21 @@ export type AgentTicketData = {
     created_at: string;
   }>;
   refund: RefundData | null;
+  current_intent: string | null;
+  intent_history: IntentHistoryData[];
+};
+
+export type IntentHistoryData = {
+  id: string;
+  intent: string;
+  previous_intent: string | null;
+  actor: string;
+  source: string;
+  source_ticket_id: string | null;
+  related_ticket_id: string | null;
+  related_refund_id: string | null;
+  detail: string;
+  created_at: string;
 };
 
 export type AgentQueueEvent =
@@ -715,6 +733,15 @@ export const acceptAgentTicket = (ticketId: string) =>
     `/api/agent/tickets/${ticketId}/accept`,
     { method: 'POST' },
   );
+
+export const changeAgentTicketIntent = (
+  ticketId: string,
+  body: { intent: 'REFUND'; reason: string; order_number?: string },
+) =>
+  agentRequest<AgentTicketData>(`/api/agent/tickets/${ticketId}/intent`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
 
 export const addAgentTicketNote = (
   ticketId: string,

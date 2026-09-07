@@ -176,15 +176,35 @@ export default function DemoClient() {
     setState(next);
     setOrder(next.active_order);
     if (!next.active_order) setShipping(null);
-    setItems((current) =>
-      current.map((item) => {
+    setItems((current) => {
+      const mapped = current.map((item) => {
         if (item.kind !== 'approval') return item;
         const refund = next.refunds.find(
           (candidate) => candidate.id === item.refundId,
         );
         return refund ? { ...item, status: refund.status } : item;
-      }),
-    );
+      });
+      const knownRefundIds = new Set(
+        mapped.flatMap((item) => (item.kind === 'approval' ? [item.refundId] : [])),
+      );
+      const serverItems = next.refunds
+        .filter((refund) =>
+          ['PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION'].includes(
+            refund.status,
+          ),
+        )
+        .filter((refund) => !knownRefundIds.has(refund.id))
+        .map((refund) => ({
+          id: `approval-${refund.id}`,
+          kind: 'approval' as const,
+          refundId: refund.id,
+          amount: String(refund.amount),
+          method: refund.method,
+          reason: refund.reason,
+          status: refund.status,
+        }));
+      return [...mapped, ...serverItems];
+    });
     return next;
   }, []);
 
@@ -318,10 +338,10 @@ export default function DemoClient() {
           amount: String(event.payload.amount),
           method: String(event.payload.method),
           reason: String(event.payload.reason),
-          status:
-            typeof event.payload.status === 'string'
-              ? event.payload.status
-              : 'PENDING_HUMAN_APPROVAL',
+          // The event is only a notification.  Render the safe creation state
+          // until the following server refresh returns the canonical status;
+          // never let an event payload grant customer confirmation.
+          status: 'PENDING_HUMAN_APPROVAL',
         },
       ]);
     } else if (event.type === 'model_fallback') {
@@ -497,7 +517,7 @@ export default function DemoClient() {
     }
   }
 
-  async function approveRefund(refundId: string) {
+  async function confirmRefundRequest(refundId: string) {
     if (busy) return;
     setBusy(true);
     try {
@@ -625,11 +645,12 @@ export default function DemoClient() {
   );
 
   const activeTicket = state?.tickets[0] ?? null;
-  const activeRefund = state?.refunds[0] ?? null;
-  const refundNeedsRefresh = [
-    'PENDING_HUMAN_APPROVAL',
-    'PENDING_CONFIRMATION',
-  ].includes(activeRefund?.status ?? '');
+  const activeRefund =
+    state?.refunds.find((refund) => refund.ticket_id === activeTicket?.id) ??
+    null;
+  const refundNeedsRefresh = (state?.refunds ?? []).some((refund) =>
+    ['PENDING_HUMAN_APPROVAL', 'PENDING_CONFIRMATION'].includes(refund.status),
+  );
   useEffect(() => {
     if (
       !activeTicket ||
@@ -766,7 +787,7 @@ export default function DemoClient() {
                     key={item.id}
                     item={item}
                     busy={busy}
-                    onConfirm={approveRefund}
+              onConfirm={confirmRefundRequest}
                     onCancel={rejectRefund}
                   />
                 ))
@@ -827,6 +848,8 @@ export default function DemoClient() {
           shipping={shipping}
           ticket={activeTicket}
           refund={activeRefund}
+          currentIntent={state?.current_intent ?? null}
+          intentHistory={state?.intent_history ?? []}
           invocations={state?.tool_invocations ?? []}
           onOpenTicket={() => setTicketDialogOpen(true)}
           onChangeOrder={changeOrder}
@@ -1032,12 +1055,19 @@ function TimelineEntry({
         {item.text}
       </div>
     );
+  const isPendingApproval = item.status === 'PENDING_HUMAN_APPROVAL';
+  const isPendingConfirmation = item.status === 'PENDING_CONFIRMATION';
+  const isCustomerActionable = isPendingApproval || isPendingConfirmation;
   return (
     <div className="ml-11 overflow-hidden rounded-2xl border border-rose-100 bg-white shadow-sm">
       <div className="border-b border-rose-100 bg-rose-50/70 px-4 py-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-rose-800">
           <ReceiptText className="size-4" />
-          {item.status === 'PENDING_HUMAN_APPROVAL' ? '等待客服人工审批' : '退款确认'}
+          {isPendingApproval
+            ? '等待客服人工审批'
+            : isPendingConfirmation
+              ? '退款确认'
+              : `退款状态：${refundStatusLabel(item.status)}`}
         </div>
       </div>
       <div className="grid gap-3 p-4 text-xs sm:grid-cols-3">
@@ -1054,13 +1084,18 @@ function TimelineEntry({
           <p className="mt-1 font-medium">{item.reason}</p>
         </div>
       </div>
-      {item.status === 'PENDING_HUMAN_APPROVAL' && (
+      {isPendingApproval && (
         <p className="px-4 pt-3 text-xs leading-5 text-amber-700">
           申请已创建，客服人工审批通过后才能确认退款；当前不会执行任何退款操作。
         </p>
       )}
+      {!isCustomerActionable && (
+        <p className="px-4 pt-3 text-xs leading-5 text-muted-foreground">
+          当前页面仅展示服务端状态，不提供任何继续操作。
+        </p>
+      )}
       <div className="flex gap-2 border-t bg-[#fbfcfc] px-4 py-3">
-        {item.status === 'PENDING_CONFIRMATION' && (
+        {isPendingConfirmation && (
           <Button
             size="sm"
             disabled={busy}
@@ -1069,16 +1104,33 @@ function TimelineEntry({
             <Check /> 确认退款
           </Button>
         )}
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={busy}
-          onClick={() => void onCancel(item.refundId)}
-        >
-          <X /> 取消
-        </Button>
+        {isCustomerActionable && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={busy}
+            onClick={() => void onCancel(item.refundId)}
+          >
+            <X /> 取消
+          </Button>
+        )}
       </div>
     </div>
+  );
+}
+
+function refundStatusLabel(status: string) {
+  return (
+    {
+      PENDING_HUMAN_APPROVAL: '等待客服人工审批',
+      PENDING_CONFIRMATION: '等待客户确认',
+      PROCESSING: '处理中',
+      SUCCEEDED: '已退款',
+      CANCELLED: '已取消',
+      REJECTED: '已拒绝',
+      WITHDRAWN: '已撤回',
+      FAILED: '失败',
+    }[status] ?? '等待服务端核验'
   );
 }
 
@@ -1137,6 +1189,8 @@ function ContextPanel({
   shipping,
   ticket,
   refund,
+  currentIntent,
+  intentHistory,
   invocations,
   onOpenTicket,
   onChangeOrder,
@@ -1145,6 +1199,8 @@ function ContextPanel({
   shipping: ShippingData | null;
   ticket: ConversationState['tickets'][number] | null;
   refund: ConversationState['refunds'][number] | null;
+  currentIntent: string | null;
+  intentHistory: ConversationState['intent_history'];
   invocations: ConversationState['tool_invocations'];
   onOpenTicket: () => void;
   onChangeOrder: () => Promise<void>;
@@ -1247,6 +1303,32 @@ function ContextPanel({
           </p>
         </div>
       )}
+      <div className="mt-4 rounded-2xl border p-4" data-testid="intent-history">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-sm font-semibold">当前客户意图</p>
+          <Badge variant="outline">{currentIntent ?? '未识别'}</Badge>
+        </div>
+        {intentHistory.length ? (
+          <div className="mt-3 space-y-2 border-t pt-3">
+            {intentHistory.slice(-4).map((event) => (
+              <div className="text-[11px] leading-5" key={event.id}>
+                <p className="font-medium">
+                  {event.previous_intent
+                    ? `${event.previous_intent} → ${event.intent}`
+                    : event.intent}
+                </p>
+                <p className="text-muted-foreground">
+                  {event.detail} · {event.actor}
+                </p>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            本会话尚未记录意图变更。
+          </p>
+        )}
+      </div>
       <div
         className={`mt-4 rounded-2xl border p-4 ${ticket ? 'border-emerald-100 bg-emerald-50/50' : 'border-dashed bg-[#f7f9fa]'}`}
       >

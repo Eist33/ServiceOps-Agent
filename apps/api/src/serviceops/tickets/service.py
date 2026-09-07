@@ -5,6 +5,7 @@ from math import ceil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from serviceops.conversations.intents import record_intent_event
 from serviceops.models import (
     Conversation,
     Customer,
@@ -122,6 +123,22 @@ def create_ticket(
     if commit:
         db.commit()
         db.refresh(ticket)
+        if ticket_type != "REFUND":
+            ticket_intent = {
+                "SHIPPING": "SHIPPING_TICKET",
+                "ORDER": "ORDER_LOOKUP",
+            }.get(ticket_type, ticket_type)
+            conversation = db.get(Conversation, conversation_id)
+            if conversation is not None and conversation.current_intent != ticket_intent:
+                record_intent_event(
+                    db,
+                    conversation_id,
+                    ticket_intent,
+                    actor="agent",
+                    source="TICKET_CREATED",
+                    source_ticket_id=ticket.id,
+                    detail=f"创建{ticket_type}工单并设为当前意图",
+                )
     return ticket
 
 

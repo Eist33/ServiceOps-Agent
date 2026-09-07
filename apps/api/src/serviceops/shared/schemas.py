@@ -596,6 +596,25 @@ class AgentTicketResolveRequest(BaseModel):
     resolution: str = Field(min_length=2, max_length=500)
 
 
+class AgentIntentChangeRequest(BaseModel):
+    intent: Literal["REFUND"]
+    reason: str = Field(min_length=2, max_length=500)
+    order_number: str | None = Field(default=None, min_length=4, max_length=40)
+
+
+class IntentHistoryItem(BaseModel):
+    id: str
+    intent: str
+    previous_intent: str | None
+    actor: str
+    source: str
+    source_ticket_id: str | None
+    related_ticket_id: str | None
+    related_refund_id: str | None
+    detail: str
+    created_at: datetime
+
+
 class TicketMessageRequest(BaseModel):
     content: str = Field(min_length=1, max_length=500)
 
@@ -648,6 +667,8 @@ class AgentTicketResponse(BaseModel):
     updated_at: datetime
     messages: list[TicketMessageResponse] = Field(default_factory=list)
     events: list[dict[str, Any]] = Field(default_factory=list)
+    current_intent: str | None = None
+    intent_history: list[IntentHistoryItem] = Field(default_factory=list)
     # Refund facts are only attached to the support-agent workbench response.
     # Mutations still go through the dedicated approval routes below.
     refund: RefundResponse | None = None

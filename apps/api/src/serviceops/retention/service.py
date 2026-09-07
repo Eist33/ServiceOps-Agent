@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from serviceops.models import (
     AuthSession,
     Conversation,
+    ConversationIntentEvent,
     CustomerSatisfactionFeedback,
     IdempotencyRecord,
     Message,
@@ -143,6 +144,7 @@ def _purge_expired_data(
         "operations_alert_acknowledgements": 0,
         "idempotency_records": 0,
         "tickets": 0,
+        "conversation_intent_events": 0,
     }
     anonymized = {"security_audit_events": 0}
 
@@ -192,6 +194,12 @@ def _purge_expired_data(
             Ticket.updated_at < cutoffs[RetentionDataClass.TICKET_DATA],
         ),
     )
+    old_conversation_intent_event_ids = _ids(
+        db,
+        select(ConversationIntentEvent.id).where(
+            ConversationIntentEvent.conversation_id.in_(stale_conversation_ids)
+        ),
+    )
     old_ticket_event_ids = _ids(
         db,
         select(TicketEvent.id).where(TicketEvent.ticket_id.in_(old_ticket_ids)),
@@ -237,6 +245,9 @@ def _purge_expired_data(
     )
     deleted["idempotency_records"] = _delete_ids(db, IdempotencyRecord, old_idempotency_ids)
     deleted["tickets"] = _delete_ids(db, Ticket, old_ticket_ids)
+    deleted["conversation_intent_events"] = _delete_ids(
+        db, ConversationIntentEvent, old_conversation_intent_event_ids
+    )
 
     old_audit_ids = _ids(
         db,

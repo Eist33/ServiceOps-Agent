@@ -101,6 +101,7 @@ from serviceops.seed import reset_demo_state, seed_database
 from serviceops.shared.errors import DomainError, ValidationError
 from serviceops.shared.schemas import (
     ActiveOrderRequest,
+    AgentIntentChangeRequest,
     AgentTicketNoteRequest,
     AgentTicketResolveRequest,
     AgentTicketResponse,
@@ -162,6 +163,7 @@ from serviceops.workbench.service import (
     accept_workbench_ticket,
     add_workbench_note,
     add_workbench_reply,
+    change_workbench_intent,
     list_workbench_tickets,
     resolve_workbench_ticket,
 )
@@ -382,6 +384,25 @@ def create_app() -> FastAPI:
         operator: Operator = Depends(current_support_agent),
     ):
         return accept_workbench_ticket(db, operator, ticket_id)
+
+    @app.post(
+        "/api/agent/tickets/{ticket_id}/intent",
+        response_model=AgentTicketResponse,
+    )
+    def change_agent_ticket_intent(
+        ticket_id: str,
+        body: AgentIntentChangeRequest,
+        db: Session = Depends(get_db),
+        operator: Operator = Depends(current_support_agent),
+    ):
+        return change_workbench_intent(
+            db,
+            operator,
+            ticket_id,
+            intent=body.intent,
+            reason=body.reason,
+            order_number=body.order_number,
+        )
 
     @app.post(
         "/api/agent/tickets/{ticket_id}/notes",
