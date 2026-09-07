@@ -7,6 +7,15 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
+from serviceops.agent.events import (
+    SAFE_ACK_MESSAGE,
+    SAFE_FAILURE_MESSAGE,
+    SAFE_THINKING_MESSAGE,
+    EventSequencer,
+    phase_payload,
+    progress_event,
+    safe_tool_label,
+)
 from serviceops.agent.intent import (
     CustomerIntent,
     plan_customer_intents,
@@ -29,7 +38,7 @@ from serviceops.models import Customer, Message, Order
 from serviceops.orders.service import get_order, list_recent_orders
 from serviceops.refunds.service import create_refund_request
 from serviceops.shared.errors import DomainError
-from serviceops.shared.schemas import AgentEvent, EventType
+from serviceops.shared.schemas import AgentEvent, EventPhase, EventType
 from serviceops.shipping.service import get_shipping_status
 from serviceops.tickets.service import (
     create_ticket,
@@ -51,6 +60,49 @@ class DeterministicSupportAgent:
         self.db = db
         self.customer = customer
 
+    def stream(
+        self,
+        conversation_id: str,
+        content: str,
+        *,
+        trace_id: str | None = None,
+    ):
+        """Yield progress before synchronous business tools start executing."""
+
+        conversation = get_conversation(self.db, self.customer, conversation_id)
+        user_message = add_message(self.db, conversation, "user", content)
+        trace_id_value = trace_id or str(uuid.uuid4())
+        sequencer = EventSequencer(trace_id_value)
+        yield sequencer.stamp(
+            progress_event(
+                event_type=EventType.ACK,
+                conversation_id=conversation_id,
+                message_id=user_message.id,
+                trace_id=trace_id_value,
+                phase=EventPhase.ACK,
+                message=SAFE_ACK_MESSAGE,
+            )
+        )
+        yield sequencer.stamp(
+            progress_event(
+                event_type=EventType.THINKING,
+                conversation_id=conversation_id,
+                message_id=user_message.id,
+                trace_id=trace_id_value,
+                phase=EventPhase.THINKING,
+                message=SAFE_THINKING_MESSAGE,
+            )
+        )
+        for event in self.run(
+            conversation_id,
+            content,
+            trace_id=trace_id_value,
+            _user_message=user_message,
+            include_progress=False,
+            stamp_events=False,
+        ):
+            yield sequencer.stamp(event)
+
     def run(
         self,
         conversation_id: str,
@@ -58,6 +110,8 @@ class DeterministicSupportAgent:
         *,
         trace_id: str | None = None,
         _user_message: Message | None = None,
+        include_progress: bool = True,
+        stamp_events: bool = True,
     ) -> list[AgentEvent]:
         conversation = get_conversation(self.db, self.customer, conversation_id)
         if _user_message is not None and _user_message.conversation_id != conversation_id:
@@ -65,6 +119,27 @@ class DeterministicSupportAgent:
         user_message = _user_message or add_message(self.db, conversation, "user", content)
         trace_id = trace_id or str(uuid.uuid4())
         events: list[AgentEvent] = []
+        if include_progress:
+            events.extend(
+                [
+                    progress_event(
+                        event_type=EventType.ACK,
+                        conversation_id=conversation_id,
+                        message_id=user_message.id,
+                        trace_id=trace_id,
+                        phase=EventPhase.ACK,
+                        message=SAFE_ACK_MESSAGE,
+                    ),
+                    progress_event(
+                        event_type=EventType.THINKING,
+                        conversation_id=conversation_id,
+                        message_id=user_message.id,
+                        trace_id=trace_id,
+                        phase=EventPhase.THINKING,
+                        message=SAFE_THINKING_MESSAGE,
+                    ),
+                ]
+            )
         normalized = content.lower()
         planned_intents = plan_customer_intents(content)
         try:
@@ -176,7 +251,10 @@ class DeterministicSupportAgent:
                     conversation_id=conversation_id,
                     message_id=agent_message.id,
                     trace_id=trace_id,
-                    payload={"delta": answer},
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"delta": answer}, EventPhase.FINAL_RESPONSE
+                    ),
                 )
             )
             events.append(
@@ -185,20 +263,43 @@ class DeterministicSupportAgent:
                     conversation_id=conversation_id,
                     message_id=agent_message.id,
                     trace_id=trace_id,
-                    payload={"status": "completed"},
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "completed"}, EventPhase.FINAL_RESPONSE
+                    ),
                 )
             )
         except DomainError as exc:
+            failure_message = add_message(
+                self.db,
+                conversation,
+                "agent",
+                SAFE_FAILURE_MESSAGE,
+            )
+            events.append(
+                AgentEvent(
+                    type=EventType.MESSAGE_DELTA,
+                    conversation_id=conversation_id,
+                    message_id=failure_message.id,
+                    trace_id=trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"delta": SAFE_FAILURE_MESSAGE}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
+            )
             events.append(
                 AgentEvent(
                     type=EventType.ERROR,
                     conversation_id=conversation_id,
-                    message_id=user_message.id,
+                    message_id=failure_message.id,
                     trace_id=trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
                     payload={
                         "code": exc.code,
-                        "message": exc.message,
+                        "message": SAFE_FAILURE_MESSAGE,
                         "recoverable": exc.status_code < 500,
+                        "phase": EventPhase.FINAL_RESPONSE.value,
                     },
                 )
             )
@@ -206,12 +307,61 @@ class DeterministicSupportAgent:
                 AgentEvent(
                     type=EventType.RESPONSE_COMPLETED,
                     conversation_id=conversation_id,
-                    message_id=user_message.id,
+                    message_id=failure_message.id,
                     trace_id=trace_id,
-                    payload={"status": "failed"},
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "failed"}, EventPhase.FINAL_RESPONSE
+                    ),
                 )
             )
-        return events
+        except Exception:
+            failure_message = add_message(
+                self.db,
+                conversation,
+                "agent",
+                SAFE_FAILURE_MESSAGE,
+            )
+            events.append(
+                AgentEvent(
+                    type=EventType.MESSAGE_DELTA,
+                    conversation_id=conversation_id,
+                    message_id=failure_message.id,
+                    trace_id=trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"delta": SAFE_FAILURE_MESSAGE}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
+            )
+            events.append(
+                AgentEvent(
+                    type=EventType.ERROR,
+                    conversation_id=conversation_id,
+                    message_id=failure_message.id,
+                    trace_id=trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload={
+                        "code": "AGENT_EXECUTION_FAILED",
+                        "message": SAFE_FAILURE_MESSAGE,
+                        "recoverable": True,
+                        "phase": EventPhase.FINAL_RESPONSE.value,
+                    },
+                )
+            )
+            events.append(
+                AgentEvent(
+                    type=EventType.RESPONSE_COMPLETED,
+                    conversation_id=conversation_id,
+                    message_id=failure_message.id,
+                    trace_id=trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "failed"}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
+            )
+        return EventSequencer(trace_id).stamp_all(events) if stamp_events else events
 
     def _record_intent(
         self,
@@ -447,7 +597,15 @@ class DeterministicSupportAgent:
                 message_id=message_id,
                 tool_call_id=tool_call_id,
                 trace_id=trace_id,
-                payload={"tool_name": name},
+                phase=EventPhase.TOOL_CALL,
+                payload=phase_payload(
+                    {
+                        "tool_name": name,
+                        "display_name": safe_tool_label(name),
+                        "status": "running",
+                    },
+                    EventPhase.TOOL_CALL,
+                ),
             )
         )
         started = time.perf_counter()
@@ -481,17 +639,23 @@ class DeterministicSupportAgent:
                     order_id=output.get("order_id"),
                     ticket_id=output.get("ticket_id"),
                     refund_request_id=output.get("refund_request_id"),
-                    payload={
-                        "tool_name": name,
-                        "status": "succeeded",
-                        "duration_ms": duration_ms,
-                        "result": output,
-                    },
+                    phase=EventPhase.TOOL_RESULT,
+                    payload=phase_payload(
+                        {
+                            "tool_name": name,
+                            "display_name": safe_tool_label(name),
+                            "status": "succeeded",
+                            "duration_ms": duration_ms,
+                            "result": output,
+                        },
+                        EventPhase.TOOL_RESULT,
+                    ),
                 )
             )
             return result, tool_call_id
-        except DomainError as exc:
+        except Exception as exc:
             duration_ms = max(1, int((time.perf_counter() - started) * 1000))
+            error_code = getattr(exc, "code", "TOOL_EXECUTION_FAILED")
             record_invocation(
                 self.db,
                 trace_id=trace_id,
@@ -500,10 +664,31 @@ class DeterministicSupportAgent:
                 tool_call_id=tool_call_id,
                 tool_name=name,
                 input_summary=input_summary,
-                output_summary={"code": exc.code},
+                output_summary={"code": error_code},
                 status="FAILED",
                 duration_ms=duration_ms,
-                error_type=exc.code,
+                error_type=error_code,
+            )
+            events.append(
+                AgentEvent(
+                    type=EventType.TOOL_COMPLETED,
+                    conversation_id=conversation_id,
+                    message_id=message_id,
+                    tool_call_id=tool_call_id,
+                    trace_id=trace_id,
+                    phase=EventPhase.TOOL_RESULT,
+                    payload=phase_payload(
+                        {
+                            "tool_name": name,
+                            "display_name": safe_tool_label(name),
+                            "status": "failed",
+                            "duration_ms": duration_ms,
+                            "error_code": error_code,
+                            "message": "工具未完成，已安全停止处理。",
+                        },
+                        EventPhase.TOOL_RESULT,
+                    ),
+                )
             )
             raise
 

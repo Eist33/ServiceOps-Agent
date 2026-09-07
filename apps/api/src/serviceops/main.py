@@ -1069,7 +1069,7 @@ def create_app() -> FastAPI:
                         + "\n"
                     )
                 return
-            events = DeterministicSupportAgent(db, customer).run(
+            events = DeterministicSupportAgent(db, customer).stream(
                 conversation_id,
                 body.content,
                 trace_id=request.state.trace_id,

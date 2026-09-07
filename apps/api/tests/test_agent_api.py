@@ -2,8 +2,10 @@ import json
 
 from sqlalchemy import select
 
+from serviceops.agent.orchestrator import DeterministicSupportAgent
+from serviceops.conversations.service import create_conversation
 from serviceops.identity.service import resolve_customer
-from serviceops.models import Order, ShippingEvent
+from serviceops.models import Order, ShippingEvent, ToolInvocation
 from serviceops.seed import AGENT_SESSION_TOKEN
 
 
@@ -38,7 +40,8 @@ def keep_demo_orders(db, order_numbers: set[str]) -> None:
 
 def test_policy_flow_emits_source_tool_events(client):
     events = run_agent(client, new_conversation(client), "退货需要几天？")
-    assert event_types(events)[0] == "tool_started"
+    assert event_types(events)[:2] == ["ack", "thinking"]
+    assert event_types(events)[2] == "tool_started"
     assert "tool_completed" in event_types(events)
     assert "message_delta" in event_types(events)
     completed = next(event for event in events if event["type"] == "tool_completed")
@@ -498,6 +501,83 @@ def test_stream_events_have_correlation_ids(client):
         assert event["conversation_id"] == conversation_id
         assert event["message_id"]
         assert event["trace_id"]
+
+
+def test_stream_events_have_ordered_auditable_phases(client):
+    events = run_agent(
+        client,
+        new_conversation(client),
+        "订单 ORD-20260828-1042 物流到哪了？",
+    )
+    assert [event["type"] for event in events[:2]] == ["ack", "thinking"]
+    phased = [event for event in events if event.get("phase")]
+    assert [event["phase"] for event in phased[:4]] == [
+        "ACK",
+        "THINKING",
+        "TOOL_CALL",
+        "TOOL_RESULT",
+    ]
+    assert phased[-1]["phase"] == "FINAL_RESPONSE"
+    assert [event["sequence"] for event in events] == list(range(len(events)))
+    assert len({event["event_id"] for event in events}) == len(events)
+    assert all("chain-of-thought" not in str(event).lower() for event in events)
+
+
+def test_no_tool_reply_still_has_ack_thinking_and_final(client):
+    events = run_agent(client, new_conversation(client), "你好")
+    assert [event["type"] for event in events[:2]] == ["ack", "thinking"]
+    assert any(
+        event["type"] == "message_delta"
+        and event["phase"] == "FINAL_RESPONSE"
+        for event in events
+    )
+
+
+def test_tool_failure_has_safe_progress_and_final_reply(client):
+    events = run_agent(
+        client,
+        new_conversation(client),
+        "订单 ORD-999999-0000 物流到哪了？",
+    )
+    failed_tool = next(
+        event
+        for event in events
+        if event["type"] == "tool_completed"
+        and event["payload"]["status"] == "failed"
+    )
+    assert failed_tool["phase"] == "TOOL_RESULT"
+    assert failed_tool["payload"]["message"] == "工具未完成，已安全停止处理。"
+    final = next(
+        event
+        for event in events
+        if event["type"] == "message_delta"
+        and event["phase"] == "FINAL_RESPONSE"
+    )
+    assert "已安全停止处理" in final["payload"]["delta"]
+
+
+def test_deterministic_stream_yields_progress_before_sync_tools(db):
+    customer = resolve_customer(db, "demo-linmu-session")
+    conversation = create_conversation(db, customer)
+    events = DeterministicSupportAgent(db, customer).stream(
+        conversation.id,
+        "订单 ORD-20260828-1042 物流到哪了？",
+        trace_id="stream-progress-trace",
+    )
+
+    first = next(events)
+    second = next(events)
+    assert first.type.value == "ack"
+    assert second.type.value == "thinking"
+    assert (
+        db.scalar(
+            select(ToolInvocation).where(
+                ToolInvocation.conversation_id == conversation.id
+            )
+        )
+        is None
+    )
+    assert list(events)
 
 
 def test_demo_reset_restores_repeatable_state(client):

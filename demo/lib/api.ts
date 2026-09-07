@@ -12,6 +12,8 @@ export type DevelopmentAccountData = {
 
 export type AgentEvent = {
   type:
+    | 'ack'
+    | 'thinking'
     | 'message_delta'
     | 'tool_started'
     | 'tool_completed'
@@ -29,6 +31,9 @@ export type AgentEvent = {
   order_id?: string;
   ticket_id?: string;
   refund_request_id?: string;
+  event_id?: string;
+  sequence?: number;
+  phase?: 'ACK' | 'THINKING' | 'TOOL_CALL' | 'TOOL_RESULT' | 'FINAL_RESPONSE';
   payload: Record<string, unknown>;
 };
 

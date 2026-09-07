@@ -79,9 +79,20 @@ test('政策问答展示知识来源与工具证据', async ({ page }) => {
 
 test('订单物流由工具返回确定性异常', async ({ page }) => {
   await sendNaturalLanguage(page, '订单 ORD-20260828-1042 的快递到哪里了？');
+  await expect(page.getByText('已收到，我会先核实相关信息。')).toBeVisible();
+  await expect(page.getByText('正在分析并准备查询。')).toBeVisible();
   await expect(page.getByText(/已调用 get_order/)).toBeVisible();
   await expect(page.getByText(/已调用 get_shipping_status/)).toBeVisible();
   await expect(page.getByText(/系统规则判定为运输停滞/)).toBeVisible();
+});
+
+test('工具失败显示安全失败进度而不伪造成功', async ({ page }) => {
+  await sendNaturalLanguage(page, '订单 ORD-999999-0000 的快递到哪里了？');
+  await expect(page.getByText(/调用未完成 get_order/)).toBeVisible();
+  await expect(
+    page.getByText('当前请求未能完成，已安全停止处理；请稍后重试或转人工客服。'),
+  ).toBeVisible();
+  await expect(page.getByText(/已调用 get_shipping_status/)).toHaveCount(0);
 });
 
 test('自然语言触发最近三笔订单选择并在刷新后恢复活动订单', async ({

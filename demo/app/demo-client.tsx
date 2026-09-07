@@ -82,9 +82,15 @@ type TimelineItem =
   | { id: string; kind: 'message'; role: 'user' | 'agent'; text: string }
   | {
       id: string;
+      kind: 'status';
+      phase: 'ACK' | 'THINKING';
+      text: string;
+    }
+  | {
+      id: string;
       kind: 'tool';
       name: string;
-      status: 'running' | 'succeeded';
+      status: 'running' | 'succeeded' | 'failed';
       summary?: string;
       duration?: number;
     }
@@ -170,6 +176,7 @@ export default function DemoClient() {
   const [feedbackBusy, setFeedbackBusy] = useState(false);
   const [error, setError] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
 
   const refreshState = useCallback(async (id: string) => {
     const next = await loadConversation(id);
@@ -212,6 +219,7 @@ export default function DemoClient() {
     const created = await createConversation();
     localStorage.setItem(storageKey, created.id);
     setConversationId(created.id);
+    seenEventIdsRef.current.clear();
     setItems([{ ...welcome, id: `welcome-${created.id}` }]);
     setState(null);
     setOrder(null);
@@ -279,7 +287,30 @@ export default function DemoClient() {
   }, [items, busy]);
 
   const handleEvent = useCallback((event: AgentEvent) => {
-    if (event.type === 'tool_started') {
+    if (event.event_id) {
+      if (seenEventIdsRef.current.has(event.event_id)) return;
+      seenEventIdsRef.current.add(event.event_id);
+      if (seenEventIdsRef.current.size > 512) {
+        const oldest = seenEventIdsRef.current.values().next().value;
+        if (oldest) seenEventIdsRef.current.delete(oldest);
+      }
+    }
+    if (event.type === 'ack' || event.type === 'thinking') {
+      const phase = event.type === 'ack' ? 'ACK' : 'THINKING';
+      setItems((current) => [
+        ...current,
+        {
+          id: event.event_id ?? `${event.trace_id}:${event.sequence ?? phase}`,
+          kind: 'status',
+          phase,
+          text:
+            displayValue(event.payload.message) ||
+            (phase === 'ACK'
+              ? '已收到，我会先核实相关信息。'
+              : '正在分析并准备查询。'),
+        },
+      ]);
+    } else if (event.type === 'tool_started') {
       setItems((current) => [
         ...current,
         {
@@ -287,12 +318,17 @@ export default function DemoClient() {
           kind: 'tool',
           name: String(event.payload.tool_name),
           status: 'running',
+          summary:
+            displayValue(event.payload.display_name) ||
+            '正在准备安全的业务查询…',
         },
       ]);
     } else if (event.type === 'tool_completed') {
       const result = event.payload.result as
         | Record<string, unknown>
         | undefined;
+      const { status: eventStatus } = event.payload;
+      const toolStatus = displayValue(eventStatus) || 'succeeded';
       if (event.payload.tool_name === 'get_shipping_status' && result) {
         setShipping(result as ShippingData);
       }
@@ -301,9 +337,13 @@ export default function DemoClient() {
           item.kind === 'tool' && item.id === event.tool_call_id
             ? {
                 ...item,
-                status: 'succeeded',
+                status: toolStatus === 'failed' ? 'failed' : 'succeeded',
                 duration: Number(event.payload.duration_ms),
-                summary: toolSummary(result),
+                summary:
+                  toolStatus === 'failed'
+                    ? displayValue(event.payload.message) ||
+                      '工具未完成，已安全停止处理。'
+                    : toolSummary(result),
               }
             : item,
         ),
@@ -1024,16 +1064,40 @@ function TimelineEntry({
         </div>
       </div>
     );
+  if (item.kind === 'status')
+    return (
+      <div className="ml-11 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-xs text-indigo-800">
+        {item.phase === 'THINKING' ? (
+          <Loader2 className="size-3.5 animate-spin" />
+        ) : (
+          <CheckCircle2 className="size-3.5" />
+        )}
+        <span>{item.text}</span>
+      </div>
+    );
   if (item.kind === 'tool')
     return (
-      <div className="ml-11 rounded-xl border border-sky-100 bg-sky-50/70 p-3 text-sky-800">
+      <div
+        className={`ml-11 rounded-xl border p-3 ${
+          item.status === 'failed'
+            ? 'border-red-100 bg-red-50/70 text-red-800'
+            : 'border-sky-100 bg-sky-50/70 text-sky-800'
+        }`}
+      >
         <div className="flex items-center gap-2 text-xs font-semibold">
           {item.status === 'running' ? (
             <Loader2 className="size-3.5 animate-spin" />
+          ) : item.status === 'failed' ? (
+            <CircleAlert className="size-3.5" />
           ) : (
             <Box className="size-3.5" />
           )}
-          {item.status === 'running' ? '正在调用' : '已调用'} {item.name}
+          {item.status === 'running'
+            ? '正在调用'
+            : item.status === 'failed'
+              ? '调用未完成'
+              : '已调用'}{' '}
+          {item.name}
         </div>
         <p className="mt-1.5 text-xs opacity-80">
           {item.summary ?? '正在执行服务端校验…'}

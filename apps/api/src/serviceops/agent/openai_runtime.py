@@ -25,6 +25,14 @@ from serviceops.agent.context import (
     ContextMessage,
     TrustedBusinessState,
 )
+from serviceops.agent.events import (
+    SAFE_ACK_MESSAGE,
+    SAFE_FAILURE_MESSAGE,
+    SAFE_THINKING_MESSAGE,
+    EventSequencer,
+    phase_payload,
+    progress_event,
+)
 from serviceops.agent.orchestrator import DeterministicSupportAgent
 from serviceops.agent.providers import (
     ModelProviderConfiguration,
@@ -51,7 +59,7 @@ from serviceops.observability import log_request_event
 from serviceops.orders.service import get_order as fetch_order
 from serviceops.orders.service import list_recent_orders as fetch_recent_orders
 from serviceops.refunds.service import create_refund_request as create_refund
-from serviceops.shared.schemas import AgentEvent, EventType
+from serviceops.shared.schemas import AgentEvent, EventPhase, EventType
 from serviceops.shipping.service import get_shipping_status as fetch_shipping
 from serviceops.tickets.service import create_ticket as create_support_ticket
 from serviceops.tickets.service import get_current_ticket as fetch_current_ticket
@@ -429,6 +437,27 @@ class ModelSupportAgent:
         trace_id_value = trace_id or str(uuid.uuid4())
         user_message_id = new_id()
         response_message_id = new_id()
+        sequencer = EventSequencer(trace_id_value)
+        yield sequencer.stamp(
+            progress_event(
+                event_type=EventType.ACK,
+                conversation_id=conversation_id,
+                message_id=response_message_id,
+                trace_id=trace_id_value,
+                phase=EventPhase.ACK,
+                message=SAFE_ACK_MESSAGE,
+            )
+        )
+        yield sequencer.stamp(
+            progress_event(
+                event_type=EventType.THINKING,
+                conversation_id=conversation_id,
+                message_id=response_message_id,
+                trace_id=trace_id_value,
+                phase=EventPhase.THINKING,
+                message=SAFE_THINKING_MESSAGE,
+            )
+        )
         settings = get_settings()
         active_order = (
             self.db.get(Order, conversation.active_order_id)
@@ -492,23 +521,44 @@ class ModelSupportAgent:
                 fallback_used=False,
                 **self.run_binding.as_audit_kwargs(),
             )
-            yield AgentEvent(
-                type=EventType.ERROR,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=trace_id_value,
-                payload={
-                    "code": error.code,
-                    "message": "当前请求未通过上下文安全检查，未发送给模型。",
-                    "recoverable": True,
-                },
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.MESSAGE_DELTA,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=trace_id_value,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"delta": SAFE_FAILURE_MESSAGE}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
             )
-            yield AgentEvent(
-                type=EventType.RESPONSE_COMPLETED,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=trace_id_value,
-                payload={"status": "failed"},
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.ERROR,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=trace_id_value,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload={
+                        "code": error.code,
+                        "message": SAFE_FAILURE_MESSAGE,
+                        "recoverable": True,
+                        "phase": EventPhase.FINAL_RESPONSE.value,
+                    },
+                )
+            )
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.RESPONSE_COMPLETED,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=trace_id_value,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "failed"}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
             )
             return
 
@@ -557,7 +607,7 @@ class ModelSupportAgent:
             async with asyncio.timeout(self.configuration.timeout_seconds):
                 async for sdk_event in result.stream_events():
                     while emitted_context_events < len(context.events):
-                        yield context.events[emitted_context_events]
+                        yield sequencer.stamp(context.events[emitted_context_events])
                         emitted_context_events += 1
                     data = getattr(sdk_event, "data", None)
                     if (
@@ -567,15 +617,20 @@ class ModelSupportAgent:
                         delta = str(getattr(data, "delta", ""))
                         if delta:
                             streamed_text.append(delta)
-                            yield AgentEvent(
-                                type=EventType.MESSAGE_DELTA,
-                                conversation_id=conversation_id,
-                                message_id=response_message_id,
-                                trace_id=context.trace_id,
-                                payload={"delta": delta},
+                            yield sequencer.stamp(
+                                AgentEvent(
+                                    type=EventType.MESSAGE_DELTA,
+                                    conversation_id=conversation_id,
+                                    message_id=response_message_id,
+                                    trace_id=context.trace_id,
+                                    phase=EventPhase.FINAL_RESPONSE,
+                                    payload=phase_payload(
+                                        {"delta": delta}, EventPhase.FINAL_RESPONSE
+                                    ),
+                                )
                             )
             while emitted_context_events < len(context.events):
-                yield context.events[emitted_context_events]
+                yield sequencer.stamp(context.events[emitted_context_events])
                 emitted_context_events += 1
             raw_answer = result.final_output
             answer = (
@@ -586,12 +641,17 @@ class ModelSupportAgent:
             if not answer:
                 raise RuntimeError("模型没有返回可用回答")
             if not streamed_text:
-                yield AgentEvent(
-                    type=EventType.MESSAGE_DELTA,
-                    conversation_id=conversation_id,
-                    message_id=response_message_id,
-                    trace_id=context.trace_id,
-                    payload={"delta": answer},
+                yield sequencer.stamp(
+                    AgentEvent(
+                        type=EventType.MESSAGE_DELTA,
+                        conversation_id=conversation_id,
+                        message_id=response_message_id,
+                        trace_id=context.trace_id,
+                        phase=EventPhase.FINAL_RESPONSE,
+                        payload=phase_payload(
+                            {"delta": answer}, EventPhase.FINAL_RESPONSE
+                        ),
+                    )
                 )
             add_message(
                 self.db,
@@ -630,12 +690,17 @@ class ModelSupportAgent:
                 output_tokens=usage.output_tokens,
                 total_tokens=usage.total_tokens,
             )
-            yield AgentEvent(
-                type=EventType.RESPONSE_COMPLETED,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=context.trace_id,
-                payload={"status": "completed"},
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.RESPONSE_COMPLETED,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=context.trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "completed"}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
             )
         except asyncio.CancelledError:
             duration_ms = max(1, int((time.perf_counter() - started) * 1000))
@@ -694,28 +759,32 @@ class ModelSupportAgent:
                 fallback_used=use_fallback,
             )
             while emitted_context_events < len(context.events):
-                yield context.events[emitted_context_events]
+                yield sequencer.stamp(context.events[emitted_context_events])
                 emitted_context_events += 1
             if use_fallback:
-                yield AgentEvent(
-                    type=EventType.MODEL_FALLBACK,
-                    conversation_id=conversation_id,
-                    message_id=user_message.id,
-                    trace_id=context.trace_id,
-                    payload={
-                        "provider": self.configuration.provider,
-                        "model": self.configuration.model_name,
-                        "reason": "temporarily_unavailable",
-                        "message": "模型服务暂时不可用，已切换到基础服务模式。",
-                    },
+                yield sequencer.stamp(
+                    AgentEvent(
+                        type=EventType.MODEL_FALLBACK,
+                        conversation_id=conversation_id,
+                        message_id=user_message.id,
+                        trace_id=context.trace_id,
+                        payload={
+                            "provider": self.configuration.provider,
+                            "model": self.configuration.model_name,
+                            "reason": "temporarily_unavailable",
+                            "message": "模型服务暂时不可用，已切换到基础服务模式。",
+                        },
+                    )
                 )
                 for event in DeterministicSupportAgent(self.db, self.customer).run(
                     conversation_id,
                     content,
                     trace_id=context.trace_id,
                     _user_message=user_message,
+                    include_progress=False,
+                    stamp_events=False,
                 ):
-                    yield event
+                    yield sequencer.stamp(event)
                 return
             failure_message = "模型服务暂时不可用，当前请求没有继续自动执行，请稍后重试。"
             add_message(
@@ -725,23 +794,44 @@ class ModelSupportAgent:
                 failure_message,
                 message_id=response_message_id,
             )
-            yield AgentEvent(
-                type=EventType.ERROR,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=context.trace_id,
-                payload={
-                    "code": error_type,
-                    "message": failure_message,
-                    "recoverable": True,
-                },
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.MESSAGE_DELTA,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=context.trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"delta": SAFE_FAILURE_MESSAGE}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
             )
-            yield AgentEvent(
-                type=EventType.RESPONSE_COMPLETED,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=context.trace_id,
-                payload={"status": "failed"},
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.ERROR,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=context.trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload={
+                        "code": error_type,
+                        "message": SAFE_FAILURE_MESSAGE,
+                        "recoverable": True,
+                        "phase": EventPhase.FINAL_RESPONSE.value,
+                    },
+                )
+            )
+            yield sequencer.stamp(
+                AgentEvent(
+                    type=EventType.RESPONSE_COMPLETED,
+                    conversation_id=conversation_id,
+                    message_id=response_message_id,
+                    trace_id=context.trace_id,
+                    phase=EventPhase.FINAL_RESPONSE,
+                    payload=phase_payload(
+                        {"status": "failed"}, EventPhase.FINAL_RESPONSE
+                    ),
+                )
             )
 
     async def run(

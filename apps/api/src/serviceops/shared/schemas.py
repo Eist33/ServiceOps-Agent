@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventType(StrEnum):
+    ACK = "ack"
+    THINKING = "thinking"
     MESSAGE_DELTA = "message_delta"
     TOOL_STARTED = "tool_started"
     TOOL_COMPLETED = "tool_completed"
@@ -19,6 +21,16 @@ class EventType(StrEnum):
     RESPONSE_COMPLETED = "response_completed"
 
 
+class EventPhase(StrEnum):
+    """Auditable user-visible phases for one assistant response."""
+
+    ACK = "ACK"
+    THINKING = "THINKING"
+    TOOL_CALL = "TOOL_CALL"
+    TOOL_RESULT = "TOOL_RESULT"
+    FINAL_RESPONSE = "FINAL_RESPONSE"
+
+
 class AgentEvent(BaseModel):
     type: EventType
     conversation_id: str
@@ -28,6 +40,9 @@ class AgentEvent(BaseModel):
     order_id: str | None = None
     ticket_id: str | None = None
     refund_request_id: str | None = None
+    event_id: str | None = None
+    sequence: int | None = Field(default=None, ge=0)
+    phase: EventPhase | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
 
 

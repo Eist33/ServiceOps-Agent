@@ -95,6 +95,33 @@ def test_customer_refund_status_is_server_canonical_and_staff_can_change_intent(
     assert "event.payload.status" not in customer_client
 
 
+def test_message_progress_events_are_structured_safe_and_deduplicated() -> None:
+    api = API.read_text(encoding="utf-8")
+    customer_client = (
+        ROOT / "demo" / "app" / "demo-client.tsx"
+    ).read_text(encoding="utf-8")
+    schemas = (
+        ROOT / "apps" / "api" / "src" / "serviceops" / "shared" / "schemas.py"
+    ).read_text(encoding="utf-8")
+    workflow = (
+        ROOT / "docs" / "消息回复事件链路与网页验收.md"
+    ).read_text(encoding="utf-8")
+
+    for token in ("'ack'", "'thinking'", "event_id", "sequence", "phase"):
+        assert token in api
+    for token in (
+        "seenEventIdsRef",
+        "event.type === 'ack'",
+        "event.type === 'thinking'",
+        "正在分析并准备查询",
+    ):
+        assert token in customer_client
+    for token in ("class EventPhase", "ACK = \"ACK\"", "TOOL_RESULT", "FINAL_RESPONSE"):
+        assert token in schemas
+    assert "ACK → THINKING → TOOL_CALL → TOOL_RESULT → FINAL_RESPONSE" in workflow
+    assert "思维链" in workflow
+
+
 def test_conversation_intent_migration_is_reversible_and_auditable() -> None:
     migration = (
         ROOT
