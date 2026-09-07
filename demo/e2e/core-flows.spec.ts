@@ -79,8 +79,8 @@ test('政策问答展示知识来源与工具证据', async ({ page }) => {
 
 test('订单物流由工具返回确定性异常', async ({ page }) => {
   await sendNaturalLanguage(page, '订单 ORD-20260828-1042 的快递到哪里了？');
-  await expect(page.getByText('已收到，我会先核实相关信息。')).toBeVisible();
-  await expect(page.getByText('正在分析并准备查询。')).toBeVisible();
+  await expect(page.getByText('正在处理你的请求。')).toBeVisible();
+  await expect(page.getByText('我正在帮你查询，请稍候。')).toHaveCount(0);
   await expect(page.getByText(/已调用 get_order/)).toBeVisible();
   await expect(page.getByText(/已调用 get_shipping_status/)).toBeVisible();
   await expect(page.getByText(/系统规则判定为运输停滞/)).toBeVisible();
@@ -433,12 +433,14 @@ test('退款先经客服网页人工审批，再由客户网页明确确认后�
     agentPage.getByText(/已通过人工审批，等待客户确认/),
   ).toBeVisible();
 
-  await expect(page.getByText('客服已同意退款，请确认退款。')).toBeVisible({
+  await expect(
+    page.getByText('客服已同意退款，请确认退款。', { exact: true }),
+  ).toBeVisible({
     timeout: 7000,
   });
-  await expect(page.getByText('客服已同意退款，请确认')).toBeVisible({
-    timeout: 7000,
-  });
+  await expect(
+    page.getByText('客服已同意退款，请确认', { exact: true }),
+  ).toBeVisible({ timeout: 7000 });
   const confirmButton = page.getByRole('button', { name: '确认退款' });
   await confirmButton.click();
   await expect(page.getByText(/退款已模拟完成/)).toBeVisible();

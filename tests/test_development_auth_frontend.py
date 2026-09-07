@@ -71,6 +71,7 @@ def test_refund_approval_is_visible_only_in_the_support_agent_workbench() -> Non
     assert "PENDING_CONFIRMATION" in customer_client
     assert "persistedRefundItems" in customer_client
     assert "refundNeedsRefresh" in customer_client
+    assert "refundVersionRef" in customer_client
     assert "客服已同意退款，请确认退款" in customer_client
     assert "approval-granted-${refund.id}-${refund.version}" in customer_client
     assert "确认退款" in customer_client
@@ -109,18 +110,31 @@ def test_message_progress_events_are_structured_safe_and_deduplicated() -> None:
         ROOT / "docs" / "消息回复事件链路与网页验收.md"
     ).read_text(encoding="utf-8")
 
-    for token in ("'ack'", "'thinking'", "event_id", "sequence", "phase"):
+    for token in (
+        "'model_start'",
+        "'timeout_ack'",
+        "event_id",
+        "sequence",
+        "phase",
+    ):
         assert token in api
     for token in (
         "seenEventIdsRef",
-        "event.type === 'ack'",
-        "event.type === 'thinking'",
-        "正在分析并准备查询",
+        "event.type === 'model_start'",
+        "event.type === 'timeout_ack'",
+        "我正在帮你查询，请稍候",
     ):
         assert token in customer_client
-    for token in ("class EventPhase", "ACK = \"ACK\"", "TOOL_RESULT", "FINAL_RESPONSE"):
+    for token in (
+        "class EventPhase",
+        "MODEL_START = \"MODEL_START\"",
+        "TIMEOUT_ACK = \"TIMEOUT_ACK\"",
+        "TOOL_RESULT",
+        "FINAL_RESPONSE",
+    ):
         assert token in schemas
-    assert "ACK → THINKING → TOOL_CALL → TOOL_RESULT → FINAL_RESPONSE" in workflow
+    assert "MODEL_START → TOOL_CALL → TOOL_RESULT → FINAL_RESPONSE" in workflow
+    assert "MODEL_START → TIMEOUT_ACK → TOOL_CALL" in workflow
     assert "思维链" in workflow
 
 

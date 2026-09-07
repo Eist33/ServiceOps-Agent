@@ -8,9 +8,8 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from serviceops.agent.events import (
-    SAFE_ACK_MESSAGE,
     SAFE_FAILURE_MESSAGE,
-    SAFE_THINKING_MESSAGE,
+    SAFE_MODEL_START_MESSAGE,
     EventSequencer,
     phase_payload,
     progress_event,
@@ -75,22 +74,12 @@ class DeterministicSupportAgent:
         sequencer = EventSequencer(trace_id_value)
         yield sequencer.stamp(
             progress_event(
-                event_type=EventType.ACK,
+                event_type=EventType.MODEL_START,
                 conversation_id=conversation_id,
                 message_id=user_message.id,
                 trace_id=trace_id_value,
-                phase=EventPhase.ACK,
-                message=SAFE_ACK_MESSAGE,
-            )
-        )
-        yield sequencer.stamp(
-            progress_event(
-                event_type=EventType.THINKING,
-                conversation_id=conversation_id,
-                message_id=user_message.id,
-                trace_id=trace_id_value,
-                phase=EventPhase.THINKING,
-                message=SAFE_THINKING_MESSAGE,
+                phase=EventPhase.MODEL_START,
+                message=SAFE_MODEL_START_MESSAGE,
             )
         )
         for event in self.run(
@@ -123,20 +112,12 @@ class DeterministicSupportAgent:
             events.extend(
                 [
                     progress_event(
-                        event_type=EventType.ACK,
+                        event_type=EventType.MODEL_START,
                         conversation_id=conversation_id,
                         message_id=user_message.id,
                         trace_id=trace_id,
-                        phase=EventPhase.ACK,
-                        message=SAFE_ACK_MESSAGE,
-                    ),
-                    progress_event(
-                        event_type=EventType.THINKING,
-                        conversation_id=conversation_id,
-                        message_id=user_message.id,
-                        trace_id=trace_id,
-                        phase=EventPhase.THINKING,
-                        message=SAFE_THINKING_MESSAGE,
+                        phase=EventPhase.MODEL_START,
+                        message=SAFE_MODEL_START_MESSAGE,
                     ),
                 ]
             )

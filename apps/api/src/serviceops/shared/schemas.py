@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class EventType(StrEnum):
+    MODEL_START = "model_start"
+    TIMEOUT_ACK = "timeout_ack"
     ACK = "ack"
     THINKING = "thinking"
     MESSAGE_DELTA = "message_delta"
@@ -24,6 +26,8 @@ class EventType(StrEnum):
 class EventPhase(StrEnum):
     """Auditable user-visible phases for one assistant response."""
 
+    MODEL_START = "MODEL_START"
+    TIMEOUT_ACK = "TIMEOUT_ACK"
     ACK = "ACK"
     THINKING = "THINKING"
     TOOL_CALL = "TOOL_CALL"

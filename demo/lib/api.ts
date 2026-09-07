@@ -12,6 +12,8 @@ export type DevelopmentAccountData = {
 
 export type AgentEvent = {
   type:
+    | 'model_start'
+    | 'timeout_ack'
     | 'ack'
     | 'thinking'
     | 'message_delta'
@@ -33,7 +35,14 @@ export type AgentEvent = {
   refund_request_id?: string;
   event_id?: string;
   sequence?: number;
-  phase?: 'ACK' | 'THINKING' | 'TOOL_CALL' | 'TOOL_RESULT' | 'FINAL_RESPONSE';
+  phase?:
+    | 'MODEL_START'
+    | 'TIMEOUT_ACK'
+    | 'ACK'
+    | 'THINKING'
+    | 'TOOL_CALL'
+    | 'TOOL_RESULT'
+    | 'FINAL_RESPONSE';
   payload: Record<string, unknown>;
 };
 

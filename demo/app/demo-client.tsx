@@ -84,7 +84,7 @@ type TimelineItem =
   | {
       id: string;
       kind: 'status';
-      phase: 'ACK' | 'THINKING';
+      phase: 'MODEL_START' | 'TIMEOUT_ACK' | 'ACK' | 'THINKING';
       text: string;
     }
   | {
@@ -179,11 +179,20 @@ export default function DemoClient() {
   const bottomRef = useRef<HTMLDivElement>(null);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
   const refreshRequestRef = useRef(0);
+  const refundVersionRef = useRef<Map<string, number>>(new Map());
 
   const refreshState = useCallback(async (id: string) => {
     const requestId = ++refreshRequestRef.current;
     const next = await loadConversation(id);
     if (requestId !== refreshRequestRef.current) return next;
+    const staleRefund = next.refunds.some((refund) => {
+      const previousVersion = refundVersionRef.current.get(refund.id);
+      return previousVersion !== undefined && refund.version < previousVersion;
+    });
+    if (staleRefund) return next;
+    next.refunds.forEach((refund) => {
+      refundVersionRef.current.set(refund.id, refund.version);
+    });
     setState(next);
     setOrder(next.active_order);
     if (!next.active_order) setShipping(null);
@@ -241,6 +250,7 @@ export default function DemoClient() {
     localStorage.setItem(storageKey, created.id);
     setConversationId(created.id);
     seenEventIdsRef.current.clear();
+    refundVersionRef.current.clear();
     setItems([{ ...welcome, id: `welcome-${created.id}` }]);
     setState(null);
     setOrder(null);
@@ -258,6 +268,9 @@ export default function DemoClient() {
             setConversationId(saved);
             setState(persisted);
             setOrder(persisted.active_order);
+            persisted.refunds.forEach((refund) => {
+              refundVersionRef.current.set(refund.id, refund.version);
+            });
             if (persisted.active_order) {
               const shippingData = await getShipping(
                 persisted.active_order.order_number,
@@ -316,8 +329,20 @@ export default function DemoClient() {
         if (oldest) seenEventIdsRef.current.delete(oldest);
       }
     }
-    if (event.type === 'ack' || event.type === 'thinking') {
-      const phase = event.type === 'ack' ? 'ACK' : 'THINKING';
+    if (
+      event.type === 'model_start' ||
+      event.type === 'timeout_ack' ||
+      event.type === 'ack' ||
+      event.type === 'thinking'
+    ) {
+      const phase =
+        event.type === 'model_start'
+          ? 'MODEL_START'
+          : event.type === 'timeout_ack'
+            ? 'TIMEOUT_ACK'
+            : event.type === 'ack'
+              ? 'ACK'
+              : 'THINKING';
       setItems((current) => [
         ...current,
         {
@@ -326,9 +351,13 @@ export default function DemoClient() {
           phase,
           text:
             displayValue(event.payload.message) ||
-            (phase === 'ACK'
-              ? '已收到，我会先核实相关信息。'
-              : '正在分析并准备查询。'),
+            (phase === 'MODEL_START'
+              ? '正在处理你的请求。'
+              : phase === 'TIMEOUT_ACK'
+                ? '我正在帮你查询，请稍候。'
+                : phase === 'ACK'
+                  ? '已收到，我会先核实相关信息。'
+                  : '正在分析并准备查询。'),
         },
       ]);
     } else if (event.type === 'tool_started') {
@@ -1088,7 +1117,7 @@ function TimelineEntry({
   if (item.kind === 'status')
     return (
       <div className="ml-11 flex items-center gap-2 rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-xs text-indigo-800">
-        {item.phase === 'THINKING' ? (
+        {['MODEL_START', 'TIMEOUT_ACK', 'THINKING'].includes(item.phase) ? (
           <Loader2 className="size-3.5 animate-spin" />
         ) : (
           <CheckCircle2 className="size-3.5" />

@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     model_api_key: str | None = None
     deepseek_api_key: str | None = None
     model_timeout_seconds: float = 30.0
+    model_ack_timeout_seconds: float = 0.75
     model_max_retries: int = 1
     model_requests_per_minute: int = 30
     model_circuit_failure_threshold: int = 3

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import logging
 import time
 import uuid
@@ -26,9 +27,9 @@ from serviceops.agent.context import (
     TrustedBusinessState,
 )
 from serviceops.agent.events import (
-    SAFE_ACK_MESSAGE,
     SAFE_FAILURE_MESSAGE,
-    SAFE_THINKING_MESSAGE,
+    SAFE_MODEL_START_MESSAGE,
+    SAFE_TIMEOUT_ACK_MESSAGE,
     EventSequencer,
     phase_payload,
     progress_event,
@@ -391,6 +392,51 @@ WRITE_TOOL_NAMES = frozenset(
 )
 
 
+async def _stream_with_timeout_ack(
+    result: Any,
+    *,
+    ack_timeout_seconds: float,
+    total_timeout_seconds: float,
+) -> AsyncIterator[Any | None]:
+    """Keep a slow model alive while emitting one safe timeout acknowledgement.
+
+    ``None`` is a private sentinel for the caller and is never serialized as a
+    customer event.  The pending ``__anext__`` task is deliberately retained
+    after the acknowledgement so a slow provider can still finish normally.
+    """
+
+    iterator = result.stream_events().__aiter__()
+    pending: asyncio.Task[Any] | None = asyncio.create_task(iterator.__anext__())
+    timeout_ack_sent = False
+    started = time.perf_counter()
+    try:
+        while True:
+            remaining = total_timeout_seconds - (time.perf_counter() - started)
+            if remaining <= 0:
+                raise TimeoutError("model response timed out")
+            wait_timeout = remaining
+            if not timeout_ack_sent:
+                wait_timeout = min(wait_timeout, ack_timeout_seconds)
+            done, _ = await asyncio.wait({pending}, timeout=wait_timeout)
+            if not done:
+                if timeout_ack_sent:
+                    raise TimeoutError("model response timed out")
+                timeout_ack_sent = True
+                yield None
+                continue
+            try:
+                event = pending.result()
+            except StopAsyncIteration:
+                return
+            yield event
+            pending = asyncio.create_task(iterator.__anext__())
+    finally:
+        if pending is not None and not pending.done():
+            pending.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await pending
+
+
 class ModelSupportAgent:
     def __init__(
         self,
@@ -440,22 +486,12 @@ class ModelSupportAgent:
         sequencer = EventSequencer(trace_id_value)
         yield sequencer.stamp(
             progress_event(
-                event_type=EventType.ACK,
+                event_type=EventType.MODEL_START,
                 conversation_id=conversation_id,
                 message_id=response_message_id,
                 trace_id=trace_id_value,
-                phase=EventPhase.ACK,
-                message=SAFE_ACK_MESSAGE,
-            )
-        )
-        yield sequencer.stamp(
-            progress_event(
-                event_type=EventType.THINKING,
-                conversation_id=conversation_id,
-                message_id=response_message_id,
-                trace_id=trace_id_value,
-                phase=EventPhase.THINKING,
-                message=SAFE_THINKING_MESSAGE,
+                phase=EventPhase.MODEL_START,
+                message=SAFE_MODEL_START_MESSAGE,
             )
         )
         settings = get_settings()
@@ -605,7 +641,23 @@ class ModelSupportAgent:
                 ),
             )
             async with asyncio.timeout(self.configuration.timeout_seconds):
-                async for sdk_event in result.stream_events():
+                async for sdk_event in _stream_with_timeout_ack(
+                    result,
+                    ack_timeout_seconds=self.configuration.ack_timeout_seconds,
+                    total_timeout_seconds=self.configuration.timeout_seconds,
+                ):
+                    if sdk_event is None:
+                        yield sequencer.stamp(
+                            progress_event(
+                                event_type=EventType.TIMEOUT_ACK,
+                                conversation_id=conversation_id,
+                                message_id=response_message_id,
+                                trace_id=trace_id_value,
+                                phase=EventPhase.TIMEOUT_ACK,
+                                message=SAFE_TIMEOUT_ACK_MESSAGE,
+                            )
+                        )
+                        continue
                     while emitted_context_events < len(context.events):
                         yield sequencer.stamp(context.events[emitted_context_events])
                         emitted_context_events += 1
@@ -863,6 +915,7 @@ class OpenAISupportAgent(ModelSupportAgent):
             model_name=model,
             api_key=settings.openai_api_key,
             timeout_seconds=settings.model_timeout_seconds,
+            ack_timeout_seconds=settings.model_ack_timeout_seconds,
             max_retries=settings.model_max_retries,
             requests_per_minute=settings.model_requests_per_minute,
             circuit_failure_threshold=settings.model_circuit_failure_threshold,

@@ -36,6 +36,7 @@ class ModelProviderConfiguration:
     model_name: str
     api_key: str | None = field(default=None, repr=False)
     timeout_seconds: float = 30.0
+    ack_timeout_seconds: float = 0.75
     max_retries: int = 1
     requests_per_minute: int = 30
     circuit_failure_threshold: int = 3
@@ -53,6 +54,7 @@ class ModelProviderConfiguration:
                 model_name=settings.openai_model,
                 api_key=settings.openai_api_key,
                 timeout_seconds=settings.model_timeout_seconds,
+                ack_timeout_seconds=settings.model_ack_timeout_seconds,
                 max_retries=settings.model_max_retries,
                 requests_per_minute=settings.model_requests_per_minute,
                 circuit_failure_threshold=settings.model_circuit_failure_threshold,
@@ -67,6 +69,7 @@ class ModelProviderConfiguration:
             model_name=settings.model_name,
             api_key=settings.model_api_key or settings.deepseek_api_key,
             timeout_seconds=settings.model_timeout_seconds,
+            ack_timeout_seconds=settings.model_ack_timeout_seconds,
             max_retries=settings.model_max_retries,
             requests_per_minute=settings.model_requests_per_minute,
             circuit_failure_threshold=settings.model_circuit_failure_threshold,
@@ -94,6 +97,7 @@ class ModelProviderConfiguration:
             raise ModelConfigurationError("模型名称不能为空")
         numeric_values = {
             "timeout_seconds": self.timeout_seconds,
+            "ack_timeout_seconds": self.ack_timeout_seconds,
             "max_retries": self.max_retries,
             "requests_per_minute": self.requests_per_minute,
             "circuit_failure_threshold": self.circuit_failure_threshold,
@@ -111,6 +115,7 @@ class ModelProviderConfiguration:
             model_name=model_name,
             api_key=self.api_key,
             timeout_seconds=float(self.timeout_seconds),
+            ack_timeout_seconds=float(self.ack_timeout_seconds),
             max_retries=int(self.max_retries),
             requests_per_minute=int(self.requests_per_minute),
             circuit_failure_threshold=int(self.circuit_failure_threshold),

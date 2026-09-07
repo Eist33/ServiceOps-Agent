@@ -4,6 +4,8 @@ from serviceops.shared.schemas import AgentEvent, EventPhase, EventType
 
 SAFE_ACK_MESSAGE = "已收到，我会先核实相关信息。"
 SAFE_THINKING_MESSAGE = "正在分析并准备查询。"
+SAFE_MODEL_START_MESSAGE = "正在处理你的请求。"
+SAFE_TIMEOUT_ACK_MESSAGE = "我正在帮你查询，请稍候。"
 SAFE_FAILURE_MESSAGE = "当前请求未能完成，已安全停止处理；请稍后重试或转人工客服。"
 
 SAFE_TOOL_LABELS = {

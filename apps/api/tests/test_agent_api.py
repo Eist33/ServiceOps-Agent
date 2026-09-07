@@ -40,8 +40,7 @@ def keep_demo_orders(db, order_numbers: set[str]) -> None:
 
 def test_policy_flow_emits_source_tool_events(client):
     events = run_agent(client, new_conversation(client), "退货需要几天？")
-    assert event_types(events)[:2] == ["ack", "thinking"]
-    assert event_types(events)[2] == "tool_started"
+    assert event_types(events)[:2] == ["model_start", "tool_started"]
     assert "tool_completed" in event_types(events)
     assert "message_delta" in event_types(events)
     completed = next(event for event in events if event["type"] == "tool_completed")
@@ -539,11 +538,10 @@ def test_stream_events_have_ordered_auditable_phases(client):
         new_conversation(client),
         "订单 ORD-20260828-1042 物流到哪了？",
     )
-    assert [event["type"] for event in events[:2]] == ["ack", "thinking"]
+    assert [event["type"] for event in events[:1]] == ["model_start"]
     phased = [event for event in events if event.get("phase")]
-    assert [event["phase"] for event in phased[:4]] == [
-        "ACK",
-        "THINKING",
+    assert [event["phase"] for event in phased[:3]] == [
+        "MODEL_START",
         "TOOL_CALL",
         "TOOL_RESULT",
     ]
@@ -553,9 +551,9 @@ def test_stream_events_have_ordered_auditable_phases(client):
     assert all("chain-of-thought" not in str(event).lower() for event in events)
 
 
-def test_no_tool_reply_still_has_ack_thinking_and_final(client):
+def test_no_tool_reply_still_has_model_start_and_final(client):
     events = run_agent(client, new_conversation(client), "你好")
-    assert [event["type"] for event in events[:2]] == ["ack", "thinking"]
+    assert [event["type"] for event in events[:1]] == ["model_start"]
     assert any(
         event["type"] == "message_delta"
         and event["phase"] == "FINAL_RESPONSE"
@@ -596,9 +594,7 @@ def test_deterministic_stream_yields_progress_before_sync_tools(db):
     )
 
     first = next(events)
-    second = next(events)
-    assert first.type.value == "ack"
-    assert second.type.value == "thinking"
+    assert first.type.value == "model_start"
     assert (
         db.scalar(
             select(ToolInvocation).where(

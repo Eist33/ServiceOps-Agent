@@ -81,6 +81,21 @@ class PartialFailingStream:
         raise RuntimeError("secret provider detail")
 
 
+class SlowSuccessfulStream:
+    final_output = "已完成查询。"
+    context_wrapper = SimpleNamespace(usage=Usage(requests=1, input_tokens=8, output_tokens=4, total_tokens=12))
+
+    async def stream_events(self):
+        await asyncio.sleep(0.03)
+        yield SimpleNamespace(
+            type="raw_response_event",
+            data=SimpleNamespace(
+                type="response.output_text.delta",
+                delta="已完成查询。",
+            ),
+        )
+
+
 def collect(agent, conversation_id, content):
     async def run():
         return [
@@ -219,6 +234,76 @@ def test_model_stream_persists_answer_and_metadata_only_audit(db):
     assert not hasattr(audit, "input_summary")
     assert not hasattr(audit, "output_summary")
     assert "sk-test-secret" not in str(audit.__dict__)
+
+
+def test_fast_model_path_starts_without_ack_or_thinking(db):
+    customer = resolve_customer(db, DEMO_SESSION_TOKEN)
+    conversation = create_conversation(db, customer)
+    agent = ModelSupportAgent(
+        db,
+        customer,
+        configuration(ack_timeout_seconds=0.05),
+        sdk_provider=object(),
+        reliability_guard=ModelReliabilityGuard(
+            requests_per_minute=30,
+            failure_threshold=3,
+            cooldown_seconds=60,
+        ),
+        runner_streamed=lambda *args, **kwargs: SuccessfulStream(),
+    )
+
+    events = collect(agent, conversation.id, "你好")
+    types = [event.type for event in events]
+    assert types[0] == EventType.MODEL_START
+    assert EventType.ACK not in types
+    assert EventType.THINKING not in types
+    assert EventType.TIMEOUT_ACK not in types
+    assert types[-1] == EventType.RESPONSE_COMPLETED
+
+
+def test_slow_model_path_emits_one_timeout_ack_then_finishes(db):
+    customer = resolve_customer(db, DEMO_SESSION_TOKEN)
+    conversation = create_conversation(db, customer)
+
+    def runner(*args, **kwargs):
+        context = kwargs["context"]
+        context.events.append(
+            AgentEvent(
+                type=EventType.TOOL_STARTED,
+                conversation_id=conversation.id,
+                message_id=context.message_id,
+                trace_id=context.trace_id,
+                phase="TOOL_CALL",
+                payload={"tool_name": "fixture_lookup", "display_name": "本地测试查询"},
+            )
+        )
+        return SlowSuccessfulStream()
+
+    agent = ModelSupportAgent(
+        db,
+        customer,
+        configuration(
+            ack_timeout_seconds=0.005,
+            timeout_seconds=0.2,
+        ),
+        sdk_provider=object(),
+        reliability_guard=ModelReliabilityGuard(
+            requests_per_minute=30,
+            failure_threshold=3,
+            cooldown_seconds=60,
+        ),
+        runner_streamed=runner,
+    )
+
+    events = collect(agent, conversation.id, "查一下订单")
+    types = [event.type for event in events]
+    assert types[0] == EventType.MODEL_START
+    assert types.count(EventType.TIMEOUT_ACK) == 1
+    assert EventType.ACK not in types
+    assert EventType.THINKING not in types
+    assert types.index(EventType.TIMEOUT_ACK) < types.index(EventType.TOOL_STARTED)
+    assert types[-1] == EventType.RESPONSE_COMPLETED
+    assert all("chain-of-thought" not in str(event).lower() for event in events)
 
 
 def test_provider_timeout_falls_back_without_duplicate_user_message(db):
