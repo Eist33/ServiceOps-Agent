@@ -77,11 +77,22 @@ class Settings(BaseSettings):
         if not origins:
             errors.append("WEB_ORIGIN must contain at least one HTTPS origin")
         for origin in origins:
-            parsed = urlparse(origin)
+            try:
+                parsed = urlparse(origin)
+                hostname = parsed.hostname
+            except ValueError:
+                errors.append(f"WEB_ORIGIN is not production-safe: {origin}")
+                continue
             if (
                 origin == "*"
                 or parsed.scheme != "https"
-                or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                or not hostname
+                or hostname in {"localhost", "127.0.0.1", "::1"}
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.path not in {"", "/"}
+                or parsed.query
+                or parsed.fragment
             ):
                 errors.append(f"WEB_ORIGIN is not production-safe: {origin}")
 

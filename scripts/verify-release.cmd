@@ -43,25 +43,17 @@ if errorlevel 1 exit /b 1
 docker compose exec -T api python -m serviceops.cli evaluate-agent
 if errorlevel 1 exit /b 1
 
-for %%U in (
-    http://127.0.0.1:3000/
-    http://127.0.0.1:3000/staff/agent
-    http://127.0.0.1:3000/staff/knowledge
-    http://127.0.0.1:3000/staff/operations
-    http://127.0.0.1:8000/health
-) do (
-    curl.exe -fsS %%U >nul
-    if errorlevel 1 (
-        echo HTTP check failed: %%U
-        exit /b 1
-    )
+docker compose exec -T api python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/health'); u.urlopen('http://web:3000/'); u.urlopen('http://web:3000/staff/agent'); u.urlopen('http://web:3000/staff/knowledge'); u.urlopen('http://web:3000/staff/operations')"
+if errorlevel 1 (
+    echo HTTP check failed inside the API container.
+    exit /b 1
 )
 
 call scripts\verify.cmd
 if errorlevel 1 exit /b 1
 
 if "%VERIFY_MODEL%"=="1" (
-    .venv\Scripts\python.exe scripts\verify_model_provider.py --reset-after
+    docker compose exec -T api python - --api-base-url http://127.0.0.1:8000 --reset-after < scripts\verify_model_provider.py
     if errorlevel 1 exit /b 1
 )
 
@@ -70,7 +62,7 @@ if "%EVALUATE_FULL_MODEL%"=="1" (
     if errorlevel 1 exit /b 1
 )
 
-curl.exe -fsS -X POST -H X-Demo-Session:demo-linmu-session http://127.0.0.1:8000/api/demo/reset >nul
+docker compose exec -T api python -c "import urllib.request as u; u.urlopen(u.Request('http://127.0.0.1:8000/api/demo/reset', method='POST', headers={'X-Demo-Session': 'demo-linmu-session'}))"
 if errorlevel 1 exit /b 1
 
 echo Release verification passed.

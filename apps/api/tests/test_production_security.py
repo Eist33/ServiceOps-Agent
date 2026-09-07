@@ -37,6 +37,10 @@ def production_settings(**overrides: object) -> Settings:
         ({"web_origin": "http://support.example.com"}, "WEB_ORIGIN"),
         ({"web_origin": "https://localhost:3000"}, "WEB_ORIGIN"),
         ({"web_origin": "*"}, "WEB_ORIGIN"),
+        ({"web_origin": "https://support.example.com/path"}, "WEB_ORIGIN"),
+        ({"web_origin": "https://user:password@support.example.com"}, "WEB_ORIGIN"),
+        ({"web_origin": "https://support.example.com/?debug=true"}, "WEB_ORIGIN"),
+        ({"web_origin": "https://[invalid"}, "WEB_ORIGIN"),
     ],
 )
 def test_production_settings_fail_closed(
@@ -83,6 +87,37 @@ def test_production_app_omits_demo_seed_reset_and_api_docs(monkeypatch) -> None:
     assert health.headers["referrer-policy"] == "no-referrer"
     assert health.headers["x-content-type-options"] == "nosniff"
     assert health.headers["x-frame-options"] == "DENY"
+    assert health.headers["permissions-policy"] == "camera=(), microphone=(), geolocation=()"
     assert health.headers["strict-transport-security"].startswith("max-age=31536000")
     assert me.status_code == 403
     assert me.json()["error"]["message"] == "当前环境未启用开发身份认证"
+
+
+def test_production_cors_accepts_only_declared_origin_method_and_header(monkeypatch) -> None:
+    settings = production_settings()
+    monkeypatch.setattr(main_module, "get_settings", lambda: settings)
+    app = main_module.create_app()
+    app.dependency_overrides[get_settings] = lambda: settings
+
+    with TestClient(app) as client:
+        allowed = client.options(
+            "/health",
+            headers={
+                "Origin": "https://support.example.com",
+                "Access-Control-Request-Method": "GET",
+                "Access-Control-Request-Headers": "X-Trace-ID",
+            },
+        )
+        forbidden = client.options(
+            "/health",
+            headers={
+                "Origin": "https://support.example.com",
+                "Access-Control-Request-Method": "DELETE",
+            },
+        )
+
+    assert allowed.status_code == 200
+    assert allowed.headers["access-control-allow-origin"] == "https://support.example.com"
+    assert "GET" in allowed.headers["access-control-allow-methods"]
+    assert "x-trace-id" in allowed.headers["access-control-allow-headers"].lower()
+    assert forbidden.status_code == 400

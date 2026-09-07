@@ -103,7 +103,7 @@ def test_contract_and_plan_do_not_claim_real_platform_connectivity() -> None:
     assert "不会产生外部网络请求" in contract
     assert "阶段 9A：平台无关契约与失败关闭桩（已完成）" in plan
     assert (
-        "阶段 9B：闲鱼个人账号本地只读实验（进行中；9B-1～9B-4 已完成本地模拟验收）"
+        "阶段 9B：闲鱼个人账号本地只读实验（进行中；9B-1～9B-5 已完成本地模拟验收）"
         in plan
     )
     assert "阶段 9C：官方只读沙箱适配器（待外部条件）" in plan

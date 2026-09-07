@@ -308,6 +308,12 @@ docker compose -f docker-compose.yml -f docker-compose.stage3.yml run --rm api-t
 
 阶段 6 的 Docker-only 测试、输入输出、Hit@1/3/5、MRR、p95、零结果率、拒答率、引用点击率、一次解决率、人工接管、满意度、单位会话成本、过期知识/孤立切块/失败 embedding/跨版本检查、网页/可见验收和回滚失败判定见 [阶段 6：生产发布与持续治理](docs/阶段6-生产发布与持续治理.md)。Docker Engine 不可用、容器测试非零或任一发布/安全/恢复证据缺失时，不能以宿主机结果宣称生产就绪。
 
+### 阶段 7：生产安全基线与发布工具
+
+阶段 7 将生产配置与开发演示运行时做硬隔离：`APP_ENV=production` 必须关闭演示身份、演示种子、演示重置、API 文档和敏感 tracing，使用非演示 PostgreSQL 与正式 HTTPS Origin；Origin 不接受通配符、本机地址、用户信息、路径、查询串或片段。API 固定返回禁止缓存、禁止嵌入、禁止 MIME 猜测、禁用摄像头/麦克风/定位等安全响应头，CORS 只允许契约内的方法和请求头。
+
+阶段 7 的 `scripts/start-product.cmd`、`scripts/verify.cmd` 和 `scripts/verify-release.cmd` 统一编排 Docker/Compose；后端、仓库契约、前端 lint/build、Playwright、迁移 head、知识评测、确定性 Agent 评测和 HTTP 健康检查都在容器内完成。真实模型烟雾与 70 条评测只有在用户显式配置并选择开关时才运行。详细输入输出、失败判定和 Docker-only 操作见 [阶段 7：生产安全基线与发布工具](docs/阶段7-生产安全基线与发布工具.md)。
+
 Agent 编排另有 70 条隔离执行的中文真实表达样本，覆盖政策、订单、物流、建单、退款、人工接管、多订单、多诉求、上下文、新会话、重复请求、他人订单、Prompt Injection、工具失败和高风险确认：
 
 ```bash

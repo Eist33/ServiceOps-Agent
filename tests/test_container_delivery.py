@@ -1,6 +1,5 @@
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -99,10 +98,13 @@ def test_non_powershell_start_checks_docker_api_and_web() -> None:
     script = (ROOT / "scripts" / "start-product.cmd").read_text(encoding="utf-8")
 
     assert "docker info" in script
-    assert "docker compose up -d --wait" in script
-    assert "http://127.0.0.1:8000/health" in script
+    assert "docker compose config --quiet" in script
+    assert "docker compose up -d --build --wait" in script
+    assert 'docker compose ps --format "{{.Service}} {{.Health}}"' in script
+    assert "postgres api web" in script
     assert "http://127.0.0.1:3000/" in script
     assert "--no-browser" in script
+    assert "curl" not in script.lower()
     assert "powershell" not in script.lower()
 
 
@@ -111,15 +113,23 @@ def test_non_powershell_verification_covers_complete_release_gate() -> None:
     release = (ROOT / "scripts" / "verify-release.cmd").read_text(encoding="utf-8")
     e2e = (ROOT / "scripts" / "verify-e2e.cmd").read_text(encoding="utf-8")
 
-    for command in ("ruff.exe", "pytest.exe", "oxlint.CMD", "vinext.CMD", "verify-e2e.cmd"):
+    for command in (
+        "docker info --format",
+        "docker compose -f docker-compose.yml -f docker-compose.stage3.yml run --rm api-test",
+        "python -m pytest /workspace/tests",
+        "docker compose -f docker-compose.e2e.yml run --rm --no-deps e2e pnpm lint",
+        "docker compose -f docker-compose.e2e.yml run --rm --no-deps e2e pnpm run build",
+        "verify-e2e.cmd",
+    ):
         assert command in verification
     for command in (
         "docker compose up -d --build --wait",
         "alembic current",
         "evaluate-knowledge",
         "evaluate-agent",
+        "docker compose exec -T api python -c",
         "scripts\\verify.cmd",
-        "verify_model_provider.py",
+        "docker compose exec -T api python - --api-base-url http://127.0.0.1:8000 --reset-after",
         "--runtime model",
         "/api/demo/reset",
     ):
@@ -128,8 +138,10 @@ def test_non_powershell_verification_covers_complete_release_gate() -> None:
         assert route in release
     assert "powershell" not in verification.lower()
     assert "powershell" not in release.lower()
-    assert "playwright.CMD test" in e2e
-    assert "docker-compose.e2e.yml up -d --build --wait" in e2e
+    assert "curl.exe" not in release.lower()
+    assert ".venv" not in release.lower()
+    assert "docker compose -f docker-compose.e2e.yml up -d --build --wait postgres api web" in e2e
+    assert "docker compose -f docker-compose.e2e.yml run --rm --no-deps e2e pnpm test:e2e" in e2e
     assert "docker-compose.e2e.yml down -v" in e2e
     assert "powershell" not in e2e.lower()
 
@@ -147,7 +159,7 @@ def test_playwright_release_gate_is_isolated_from_running_docker_product() -> No
     assert "serviceops-e2e-${process.pid}.db" in config
     assert "DATABASE_URL: `sqlite:///${databasePath}`" in config
     assert "--timeout-graceful-shutdown 2" in config
-    assert "const API_BASE_URL = 'http://127.0.0.1:8100'" in scenarios
+    assert "process.env.E2E_API_BASE_URL ?? 'http://127.0.0.1:8100'" in scenarios
     assert "http://127.0.0.1:8000" not in scenarios
 
 
@@ -162,7 +174,7 @@ def test_e2e_compose_is_deterministic_and_does_not_publish_postgres() -> None:
     compose = (ROOT / "docker-compose.e2e.yml").read_text(encoding="utf-8")
 
     assert "AGENT_MODE: deterministic" in compose
-    assert "WEB_ORIGIN: http://127.0.0.1:3100" in compose
+    assert "WEB_ORIGIN: http://web:3000,http://127.0.0.1:3100" in compose
     assert '"8100:8000"' in compose
     assert '"3100:3000"' in compose
     assert "fetch('http://localhost:3000')" in compose
