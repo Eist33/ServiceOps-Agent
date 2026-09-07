@@ -20,6 +20,9 @@ const manageLocalServers = process.env.E2E_EXTERNAL_SERVER !== 'true';
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
+  // Docker E2E workers share one seeded PostgreSQL demo database.  Serialise
+  // reset-and-login flows so one test cannot reset another test's session.
+  workers: process.env.E2E_EXTERNAL_SERVER === 'true' ? 1 : undefined,
   retries: 0,
   reporter: 'list',
   use: {

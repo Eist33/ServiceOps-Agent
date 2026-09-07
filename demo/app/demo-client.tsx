@@ -1164,13 +1164,15 @@ function TimelineEntry({
       )}
       <div className="flex gap-2 border-t bg-[#fbfcfc] px-4 py-3">
         {isPendingConfirmation && (
-          <Button
-            size="sm"
+          <button
+            type="button"
+            aria-label="确认退款"
+            className="inline-flex h-7 shrink-0 items-center justify-center gap-1 rounded-[min(var(--radius-md),12px)] border border-transparent bg-primary px-2.5 text-[0.8rem] font-medium whitespace-nowrap text-primary-foreground transition-all outline-none select-none hover:bg-primary/80 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50"
             disabled={busy}
             onClick={() => void onConfirm(item.refundId)}
           >
             <Check /> 确认退款
-          </Button>
+          </button>
         )}
         {isCustomerActionable && (
           <Button

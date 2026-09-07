@@ -409,6 +409,7 @@ test('退款先经客服网页人工审批，再由客户网页明确确认后�
   await page.getByRole('button', { name: '查看工单详情' }).click();
   await page.getByRole('button', { name: '转人工处理' }).click();
   await expect(page.getByText('人工接管已建立')).toBeVisible();
+  await page.getByRole('button', { name: 'Close' }).click();
 
   const agentPage = await context.newPage();
   await loginStaff(agentPage, '沈清禾', '/staff/agent');
@@ -419,7 +420,12 @@ test('退款先经客服网页人工审批，再由客户网页明确确认后�
   await agentPage.getByRole('button', { name: '转为退款意图' }).click();
   await expect(agentPage.getByText(/已创建退款处理事项 RF-/)).toBeVisible();
   await expect(agentPage.getByTestId('refund-approval-queue')).toBeVisible();
-  await expect(agentPage.getByText('待客服审批')).toBeVisible();
+  await expect(
+    agentPage.getByTestId('refund-approval-queue').getByText('待客服审批'),
+  ).toBeVisible();
+  await expect(page.getByText('等待客服人工审批')).toBeVisible({
+    timeout: 7000,
+  });
   await agentPage.getByRole('button', { name: /打开退款申请 RF-/ }).click();
   await expect(agentPage.getByTestId('refund-approval-panel')).toBeVisible();
   await agentPage.getByRole('button', { name: '通过人工审批' }).click();
@@ -427,11 +433,80 @@ test('退款先经客服网页人工审批，再由客户网页明确确认后�
     agentPage.getByText(/已通过人工审批，等待客户确认/),
   ).toBeVisible();
 
-  await expect(page.getByText('等待客服人工审批')).toBeVisible();
   await expect(page.getByText('退款确认')).toBeVisible({ timeout: 7000 });
-  await page.getByRole('button', { name: '确认退款' }).click();
+  const confirmButton = page.getByRole('button', { name: '确认退款' });
+  await confirmButton.click();
   await expect(page.getByText(/退款已模拟完成/)).toBeVisible();
   await expect(page.getByText('已退款')).toBeVisible();
+});
+
+test('客服网页拒绝退款后不再展示第二次审批动作', async ({ page, context }) => {
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的商品不合适，帮我申请退款。',
+  );
+  await expect(page.getByText('等待客服人工审批')).toBeVisible();
+
+  const agentPage = await context.newPage();
+  await loginStaff(agentPage, '沈清禾', '/staff/agent');
+  await expect(agentPage.getByTestId('refund-approval-queue')).toBeVisible();
+  await agentPage
+    .getByRole('button', { name: /打开退款申请 RF-/ })
+    .click();
+  await expect(agentPage.getByTestId('refund-approval-panel')).toBeVisible();
+  await agentPage
+    .getByLabel('拒绝退款原因')
+    .fill('凭证不足，暂不满足退款条件');
+  await agentPage.getByRole('button', { name: '拒绝退款' }).click();
+  await expect(agentPage.getByText(/退款申请 RF-.*已拒绝/)).toBeVisible();
+  await expect(
+    agentPage.getByRole('button', { name: '通过人工审批' }),
+  ).toHaveCount(0);
+  await expect(
+    agentPage.getByRole('button', { name: '拒绝退款' }),
+  ).toHaveCount(0);
+  await expect(
+    agentPage.getByRole('button', { name: '撤回退款' }),
+  ).toHaveCount(0);
+  await expect(page.getByText('退款状态：已拒绝')).toBeVisible({
+    timeout: 7000,
+  });
+});
+
+test('客服网页审批后可以撤回退款且撤回后不能重复操作', async ({
+  page,
+  context,
+}) => {
+  await sendNaturalLanguage(
+    page,
+    '订单 ORD-20260828-1042 的商品不合适，帮我申请退款。',
+  );
+  await expect(page.getByText('等待客服人工审批')).toBeVisible();
+
+  const agentPage = await context.newPage();
+  await loginStaff(agentPage, '沈清禾', '/staff/agent');
+  await expect(agentPage.getByTestId('refund-approval-queue')).toBeVisible();
+  await agentPage
+    .getByRole('button', { name: /打开退款申请 RF-/ })
+    .click();
+  await agentPage.getByTestId('refund-approval-panel').getByRole('button', {
+    name: '通过人工审批',
+  }).click();
+  await expect(
+    agentPage.getByText(/已通过人工审批，等待客户确认/),
+  ).toBeVisible();
+  await agentPage.getByLabel('撤回退款原因').fill('客户改为其他售后方案');
+  await agentPage.getByRole('button', { name: '撤回退款' }).click();
+  await expect(agentPage.getByText(/退款申请 RF-.*已撤回/)).toBeVisible();
+  await expect(
+    agentPage.getByRole('button', { name: '通过人工审批' }),
+  ).toHaveCount(0);
+  await expect(
+    agentPage.getByRole('button', { name: '撤回退款' }),
+  ).toHaveCount(0);
+  await expect(page.getByText('退款状态：已撤回')).toBeVisible({
+    timeout: 7000,
+  });
 });
 
 test('运营人员发布知识新版本并替换当前条款', async ({ page }) => {
