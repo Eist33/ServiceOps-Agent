@@ -55,10 +55,14 @@ Harbor Support 是一个面向电商售后团队的客服工作台：让客户�
 
 | 页面 | 截图状态 |
 | --- | --- |
-| 客户服务入口：查询进度与正式答复 | 截图占位：待补充本地验收截图 |
-| 客服工作台：工单队列与退款审批 | 截图占位：待补充本地验收截图 |
-| 退款确认：客服批准后的客户状态 | 截图占位：待补充本地验收截图 |
-| 消息时间线：快速与较慢响应 | 截图占位：待补充本地验收截图 |
+| 客户服务入口：查询进度与正式答复 | <img width="2169" height="1881" alt="image" src="https://github.com/user-attachments/assets/bbefcb89-3391-499a-b7d5-24796adaf402" />
+ |
+| 客服工作台：工单队列与退款审批 | <img width="2316" height="1677" alt="image" src="https://github.com/user-attachments/assets/3c1282aa-8f34-4b35-beba-51f2d75dacb9" />
+ |
+| 退款确认：客服批准后的客户状态 | <img width="1098" height="285" alt="image" src="https://github.com/user-attachments/assets/f00325dd-fb1b-413c-975d-75b4a5a3b852" />
+ |
+| 消息时间线：快速与较慢响应 | <img width="2211" height="522" alt="image" src="https://github.com/user-attachments/assets/d5913edb-79ba-40e3-9d40-6590cbb62e3d" />
+ |
 
 ## 运行和网页验收
 
