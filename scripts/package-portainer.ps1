@@ -2,7 +2,7 @@
 param(
     [string]$ServerHost = "101.35.149.171",
     [int]$ApiPort = 18080,
-    [int]$WebPort = 13000,
+    [int]$WebPort = 13100,
     [string]$ReleaseTag,
     [switch]$NoPullPostgres
 )

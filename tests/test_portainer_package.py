@@ -35,3 +35,4 @@ def test_portainer_compose_keeps_api_and_web_image_tags_aligned():
     assert api_tag == web_tag
     assert "POSTGRES_PASSWORD: serviceops" in compose
     assert "postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops" in compose
+    assert '"13100:3000"' in compose

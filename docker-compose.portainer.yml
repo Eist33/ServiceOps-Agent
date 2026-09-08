@@ -1,4 +1,4 @@
-name: harbor-support
+﻿name: harbor-support
 
 services:
   postgres:
@@ -17,12 +17,12 @@ services:
       - serviceops-postgres:/var/lib/postgresql/data
 
   api:
-    image: serviceops-api:20260908-r2
+    image: serviceops-api:20260908-r3
     restart: unless-stopped
     environment:
       APP_ENV: demo
       DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
-      WEB_ORIGIN: ${WEB_ORIGIN:-http://101.35.149.171:13000}
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://101.35.149.171:13100}
       AGENT_MODE: ${AGENT_MODE:-deterministic}
       MODEL_PROVIDER: ${MODEL_PROVIDER:-deepseek}
       MODEL_API_STYLE: ${MODEL_API_STYLE:-responses}
@@ -57,7 +57,7 @@ services:
       - "18080:8000"
 
   web:
-    image: serviceops-web:20260908-r2
+    image: serviceops-web:20260908-r3
     restart: unless-stopped
     depends_on:
       api:
@@ -68,7 +68,7 @@ services:
       timeout: 3s
       retries: 20
     ports:
-      - "13000:3000"
+      - "13100:3000"
 
 volumes:
   serviceops-postgres:
