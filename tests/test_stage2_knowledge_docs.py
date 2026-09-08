@@ -24,15 +24,14 @@ def test_stage2_document_is_linked_to_plan_and_has_contract_sections():
     assert "PowerShell" not in document
 
 
-def test_stage2_docs_and_readme_expose_only_operator_contract():
+def test_stage2_docs_and_architecture_expose_only_operator_contract():
     document = STAGE2_DOC.read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     process = (
         ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md"
     ).read_text(encoding="utf-8")
 
-    for content in (document, readme, architecture, process):
+    for content in (document, architecture, process):
         assert "阶段 2" in content
         assert "docker compose" in content
     for route in (

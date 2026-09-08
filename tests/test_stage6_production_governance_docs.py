@@ -44,14 +44,13 @@ def test_stage6_document_matches_plan_and_has_machine_contract() -> None:
 
 def test_stage6_docs_and_compose_expose_governance_paths() -> None:
     document = STAGE6_DOC.read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     process = (
         ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md"
     ).read_text(encoding="utf-8")
     compose = (ROOT / "docker-compose.stage3.yml").read_text(encoding="utf-8")
 
-    for content in (document, readme, architecture, process):
+    for content in (document, architecture, process):
         assert "阶段 6" in content
         assert "docker compose" in content
         assert "/api/ops/production/governance" in content

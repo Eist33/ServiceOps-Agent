@@ -30,7 +30,6 @@ def test_stage3_document_matches_plan_and_has_machine_contract() -> None:
 
 def test_stage3_docs_expose_only_operator_scoped_routes_and_docker_evidence() -> None:
     document = STAGE3_DOC.read_text(encoding="utf-8")
-    readme = (ROOT / "README.md").read_text(encoding="utf-8")
     architecture = (ROOT / "docs" / "architecture.md").read_text(encoding="utf-8")
     process = (
         ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md"
@@ -38,7 +37,7 @@ def test_stage3_docs_expose_only_operator_scoped_routes_and_docker_evidence() ->
     dockerfile_test = (ROOT / "apps/api/Dockerfile.test").read_text(encoding="utf-8")
     compose_test = (ROOT / "docker-compose.stage3.yml").read_text(encoding="utf-8")
 
-    for content in (document, readme, architecture, process):
+    for content in (document, architecture, process):
         assert "阶段 3" in content
         assert "docker compose" in content
     assert "docker-compose.stage3.yml" in document

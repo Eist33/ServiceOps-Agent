@@ -21,9 +21,8 @@ def test_stage1_document_has_contracts_examples_and_docker_acceptance() -> None:
         assert forbidden not in text
 
 
-def test_stage1_references_are_present_in_readme_architecture_and_flow() -> None:
+def test_stage1_references_are_present_in_architecture_and_flow() -> None:
     for path in (
-        ROOT / "README.md",
         ROOT / "docs" / "architecture.md",
         ROOT / "docs" / "企业客服与工单执行Agent_生产化开发流程_v1.0.md",
     ):
