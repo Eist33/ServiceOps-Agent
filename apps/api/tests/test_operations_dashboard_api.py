@@ -3,7 +3,13 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from serviceops.models import ModelInvocation, OperationsAlertAcknowledgement, Order, Ticket
+from serviceops.models import (
+    ModelInvocation,
+    OperationsAlertAcknowledgement,
+    Order,
+    RefundRequest,
+    Ticket,
+)
 from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
@@ -115,9 +121,43 @@ def test_operations_can_list_all_orders_and_reset_one_order(client, db):
     assert reset.json()["status"] == "reset"
     assert reset.json()["order"]["status"] == "IN_TRANSIT"
     assert reset.json()["order"]["refundable_amount"] == "329.00"
+    assert reset.json()["cleared_ticket_count"] == 0
+    assert reset.json()["cleared_refund_count"] == 0
     db.refresh(order)
     assert order.status == "IN_TRANSIT"
     assert str(order.refundable_amount) == "329.00"
+
+
+def test_operations_order_reset_clears_refund_workflow_data(client, db):
+    conversation_id = _start_conversation(client)
+    _run_agent(client, conversation_id, "ORD-20260828-1042 不想要了，申请退款")
+    state = client.get(f"/api/conversations/{conversation_id}").json()
+    refund_id = state["refunds"][0]["id"]
+
+    approved = client.post(
+        f"/api/agent/refund-requests/{refund_id}/approve",
+        headers={**AGENT_HEADERS, "Idempotency-Key": "order-reset-approval"},
+    )
+    assert approved.status_code == 200
+    confirmed = client.post(
+        f"/api/refund-requests/{refund_id}/confirm",
+        headers={"Idempotency-Key": "order-reset-confirm"},
+    )
+    assert confirmed.status_code == 200
+    assert client.get("/api/orders/ORD-20260828-1042").json()["status"] == "REFUNDED"
+
+    order = db.scalar(select(Order).where(Order.order_number == "ORD-20260828-1042"))
+    assert order is not None
+    reset = client.post(f"/api/ops/orders/{order.id}/reset", headers=OPS_HEADERS)
+
+    assert reset.status_code == 200
+    assert reset.json()["cleared_ticket_count"] == 1
+    assert reset.json()["cleared_refund_count"] == 1
+    assert reset.json()["order"]["status"] == "IN_TRANSIT"
+    assert reset.json()["order"]["refundable_amount"] == "329.00"
+    assert client.get(f"/api/conversations/{conversation_id}").status_code == 404
+    assert db.scalar(select(RefundRequest).where(RefundRequest.id == refund_id)) is None
+    assert db.scalar(select(Ticket).where(Ticket.order_id == order.id)) is None
 
 
 def test_customer_cannot_list_or_reset_operations_orders(client, db):

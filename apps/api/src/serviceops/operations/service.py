@@ -2,19 +2,24 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from math import ceil
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from serviceops.models import (
+    Conversation,
+    ConversationIntentEvent,
     Customer,
     CustomerSatisfactionFeedback,
     HandoffStatus,
+    IdempotencyRecord,
     KnowledgeArticle,
+    Message,
     ModelInvocation,
     OperationsAlertAcknowledgement,
     Operator,
     Order,
+    RefundApprovalAudit,
     RefundRequest,
     RefundStatus,
     SecurityAuditEvent,
@@ -134,6 +139,85 @@ def reset_operations_order(
     if customer is None:
         raise NotFoundError("订单关联的客户不存在")
 
+    ticket_ids = list(
+        db.scalars(select(Ticket.id).where(Ticket.order_id == order.id))
+    )
+    refund_ids = list(
+        db.scalars(select(RefundRequest.id).where(RefundRequest.order_id == order.id))
+    )
+    conversation_ids = set(
+        db.scalars(
+            select(Conversation.id).where(Conversation.active_order_id == order.id)
+        )
+    )
+    conversation_ids.update(
+        db.scalars(
+            select(Ticket.conversation_id).where(Ticket.order_id == order.id)
+        )
+    )
+    deletable_conversation_ids = [
+        conversation_id
+        for conversation_id in conversation_ids
+        if db.scalar(
+            select(Ticket.id)
+            .where(
+                Ticket.conversation_id == conversation_id,
+                Ticket.order_id != order.id,
+            )
+            .limit(1)
+        )
+        is None
+    ]
+
+    if ticket_ids or refund_ids or deletable_conversation_ids:
+        db.execute(
+            delete(ConversationIntentEvent).where(
+                or_(
+                    ConversationIntentEvent.conversation_id.in_(
+                        deletable_conversation_ids
+                    ),
+                    ConversationIntentEvent.source_ticket_id.in_(ticket_ids),
+                    ConversationIntentEvent.related_ticket_id.in_(ticket_ids),
+                    ConversationIntentEvent.related_refund_id.in_(refund_ids),
+                )
+            )
+        )
+        db.execute(
+            delete(IdempotencyRecord).where(
+                IdempotencyRecord.resource_id.in_(ticket_ids + refund_ids)
+            )
+        )
+        db.execute(
+            delete(CustomerSatisfactionFeedback).where(
+                CustomerSatisfactionFeedback.ticket_id.in_(ticket_ids)
+            )
+        )
+        db.execute(
+            delete(OperationsAlertAcknowledgement).where(
+                OperationsAlertAcknowledgement.ticket_id.in_(ticket_ids)
+            )
+        )
+        db.execute(delete(RefundApprovalAudit).where(RefundApprovalAudit.refund_request_id.in_(refund_ids)))
+        db.execute(delete(TicketEvent).where(TicketEvent.ticket_id.in_(ticket_ids)))
+        db.execute(delete(RefundRequest).where(RefundRequest.id.in_(refund_ids)))
+        db.execute(delete(Ticket).where(Ticket.id.in_(ticket_ids)))
+        db.execute(
+            delete(ToolInvocation).where(
+                ToolInvocation.conversation_id.in_(deletable_conversation_ids)
+            )
+        )
+        db.execute(
+            delete(ModelInvocation).where(
+                ModelInvocation.conversation_id.in_(deletable_conversation_ids)
+            )
+        )
+        db.execute(
+            delete(Message).where(Message.conversation_id.in_(deletable_conversation_ids))
+        )
+        db.execute(
+            delete(Conversation).where(Conversation.id.in_(deletable_conversation_ids))
+        )
+
     order.status = initial_status
     order.refundable_amount = order.paid_amount
     order.updated_at = datetime.now(UTC)
@@ -151,6 +235,8 @@ def reset_operations_order(
         "status": "reset",
         "order": _ops_order_item(order, customer.name),
         "operator_name": operator.name,
+        "cleared_ticket_count": len(ticket_ids),
+        "cleared_refund_count": len(refund_ids),
     }
 
 

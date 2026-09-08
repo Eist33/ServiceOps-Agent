@@ -267,7 +267,7 @@ export default function OperationsClient() {
   async function resetOrder(order: OperationsOrderReportData['items'][number]) {
     if (resettingOrderId) return;
     const confirmed = window.confirm(
-      `确定将订单 ${order.order_number} 恢复为初始演示状态吗？这会恢复订单状态和可退款金额，不删除工单或退款审计记录。`,
+      `确定重置订单 ${order.order_number} 的演示数据吗？这会清除该订单的演示会话、工单和退款记录，保留安全审计记录。`,
     );
     if (!confirmed) return;
     setResettingOrderId(order.id);
@@ -286,8 +286,17 @@ export default function OperationsClient() {
             }
           : current,
       );
+      try {
+        localStorage.removeItem('harbor-support-order-reset');
+        localStorage.setItem(
+          'harbor-support-order-reset',
+          JSON.stringify({ order_id: result.order.id }),
+        );
+      } catch {
+        // The server-side reset is authoritative; local notification is best effort.
+      }
       setNotice(
-        `订单 ${result.order.order_number} 已恢复为${orderStatusLabel(result.order.status)}，可退款金额为 ¥${result.order.refundable_amount}`,
+        `订单 ${result.order.order_number} 已恢复为${orderStatusLabel(result.order.status)}，可退款金额为 ¥${result.order.refundable_amount}；已清除 ${result.cleared_ticket_count} 个工单、${result.cleared_refund_count} 条退款记录`,
       );
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : '重置订单状态失败');
@@ -457,7 +466,7 @@ export default function OperationsClient() {
                       <ReceiptText className="size-5 text-primary" /> 订单管理
                     </CardTitle>
                     <CardDescription className="mt-1">
-                      查看全部演示订单；重置仅恢复选中订单的初始状态和可退款金额，不删除工单或退款审计记录
+                      查看全部演示订单；重置会清除选中订单的演示会话、工单和退款记录，恢复订单初始状态并保留安全审计记录
                     </CardDescription>
                   </div>
                   {orderReport && (

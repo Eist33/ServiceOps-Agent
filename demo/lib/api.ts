@@ -292,6 +292,8 @@ export type OperationsOrderResetData = {
   status: 'reset';
   order: OperationsOrderItemData;
   operator_name: string;
+  cleared_ticket_count: number;
+  cleared_refund_count: number;
 };
 
 export type CommerceIntegrationStatusData = {

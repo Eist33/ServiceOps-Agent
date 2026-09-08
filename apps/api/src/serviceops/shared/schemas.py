@@ -572,6 +572,8 @@ class OpsOrderResetResponse(BaseModel):
     status: Literal["reset"]
     order: OpsOrderItem
     operator_name: str
+    cleared_ticket_count: int
+    cleared_refund_count: int
 
 
 class OpsTicketReportResponse(BaseModel):

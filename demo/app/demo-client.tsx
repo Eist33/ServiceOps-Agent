@@ -317,6 +317,25 @@ export default function DemoClient() {
   }, [startFreshConversation, storageKey]);
 
   useEffect(() => {
+    function handleOrderReset(event: StorageEvent) {
+      if (event.key !== 'harbor-support-order-reset' || !event.newValue || !order?.id) {
+        return;
+      }
+      try {
+        const payload = JSON.parse(event.newValue) as { order_id?: string };
+        if (payload.order_id !== order.id) return;
+        void startFreshConversation().catch((caught) => {
+          setError(caught instanceof Error ? caught.message : '订单重置后无法刷新会话');
+        });
+      } catch {
+        // Ignore malformed best-effort local notifications.
+      }
+    }
+    window.addEventListener('storage', handleOrderReset);
+    return () => window.removeEventListener('storage', handleOrderReset);
+  }, [order?.id, startFreshConversation]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [items, busy]);
 
