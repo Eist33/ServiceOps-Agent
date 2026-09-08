@@ -1,0 +1,39 @@
+===WHERE=== 
+D:\Git\cmd\git.exe
+C:\Windows\System32\bash.exe
+C:\Users\12494\AppData\Local\Microsoft\WindowsApps\bash.exe
+信息: 用提供的模式无法找到文件。
+===VER=== 
+git version 2.55.0.windows.5
+===GITCMD=== 
+git version 2.55.0.windows.5
+===GITMINGW=== 
+git version 2.55.0.windows.5
+===FILES=== 
+找不到文件
+找不到文件
+bash.exe
+git.exe
+git.exe
+找不到文件
+===USRDIR=== 
+bashbug
+sha1sum.exe
+sha224sum.exe
+sha256sum.exe
+sha384sum.exe
+sha512sum.exe
+shred.exe
+shuf.exe
+===COUNT=== 
+235
+===REG=== 
+
+HKEY_LOCAL_MACHINE\SOFTWARE\GitForWindows
+    CurrentVersion    REG_SZ    2.55.0.5
+    InstallPath    REG_SZ    D:\Git
+    LibexecPath    REG_SZ    D:\Git\mingw64\libexec\git-core
+
+===PATH=== 
+C:\WINDOWS\system32;C:\WINDOWS;C:\WINDOWS\System32\Wbem;C:\WINDOWS\System32\WindowsPowerShell\v1.0\;C:\WINDOWS\System32\OpenSSH\;C:\Program Files\dotnet\;C:\Program Files\Docker\Docker\resources\bin;D:\Git\cmd;C:\Users\12494\AppData\Local\pi-node\current;C:\Users\12494\AppData\Local\Programs\Python\Launcher\;C:\Users\12494\AppData\Local\Microsoft\WindowsApps;D:\PyCharm 2025.3.3\bin;D:\Microsoft VS Code\bin;C:\Users\12494\AppData\Roaming\Python\Scripts;C:\Users\12494\AppData\Local\garyttierney\me3\bin 
+===DONE=== 
