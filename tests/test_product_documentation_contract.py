@@ -15,15 +15,15 @@ def test_readme_is_a_user_facing_product_page() -> None:
     for marker in (
         "# Harbor Support",
         "## 在线展示",
-        "https://your-demo.example.com",
-        "部署完成后，请将链接替换为实际地址",
+        "展示地址",
+        "这是在线展示地址占位符",
         "## 你可以用它做什么",
         "## 客户网页流程",
         "## 客服网页流程",
         "## 退款保护",
         "## 消息回复体验",
         "## 页面示例",
-        "截图占位",
+        "## 运行和网页验收",
         "架构设计",
         "部署与运行指南",
     ):
@@ -60,10 +60,16 @@ def test_readme_links_and_screenshot_placeholders_are_safe() -> None:
             continue
         assert (ROOT / link).is_file(), link
 
-    # There are no verified product screenshots in the repository yet. A
-    # placeholder is safer than a fabricated image or a broken image path.
-    assert "截图占位：待补充本地验收截图" in text
-    assert "![" not in text
+    screenshot_links = re.findall(r"!\[[^\]]*\]\(([^)]+)\)", text)
+    expected_screenshots = {
+        "imgs/客户服务入口.png",
+        "imgs/客服工作台.png",
+        "imgs/退款确认.png",
+        "imgs/时间信息线.png",
+    }
+    assert set(screenshot_links) == expected_screenshots
+    for screenshot in expected_screenshots:
+        assert (ROOT / screenshot).is_file(), screenshot
 
 
 def test_architecture_has_renderable_boundary_diagram_and_security_scope() -> None:
