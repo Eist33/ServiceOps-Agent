@@ -67,6 +67,7 @@ import {
   getOperationsDashboard,
   getOperationsQualityReport,
   getOperationsTicketReport,
+  resetDemoDataAfterCompletedTicket,
   streamOperationsAlerts,
 } from '@/lib/api';
 
@@ -99,6 +100,8 @@ export default function OperationsClient() {
   const [reportLoading, setReportLoading] = useState(true);
   const [reportError, setReportError] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [resettingTicketId, setResettingTicketId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -197,6 +200,36 @@ export default function OperationsClient() {
       );
     } finally {
       setAcknowledgingAlertId(null);
+    }
+  }
+
+  async function resetCompletedTicket(ticketId: string, ticketNumber: string) {
+    if (resettingTicketId) return;
+    const confirmed = window.confirm(
+      `确定清除 ${ticketNumber} 产生的演示数据吗？清除后订单可以重新测试。`,
+    );
+    if (!confirmed) return;
+    setResettingTicketId(ticketId);
+    setError('');
+    setNotice('');
+    try {
+      const result = await resetDemoDataAfterCompletedTicket(ticketId, 'operations');
+      const [nextDashboard, nextQuality, nextTicketReport] = await Promise.all([
+        getOperationsDashboard(),
+        getOperationsQualityReport(),
+        getOperationsTicketReport({
+          supportGroup: supportGroup === 'ALL' ? undefined : supportGroup,
+          slaStatus: slaStatus === 'ALL' ? undefined : slaStatus,
+        }),
+      ]);
+      setDashboard(nextDashboard);
+      setQualityReport(nextQuality);
+      setTicketReport(nextTicketReport);
+      setNotice(`已清除 ${result.ticket_number} 的演示数据，订单 ${result.order_number} 可重新测试`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '清除演示数据失败');
+    } finally {
+      setResettingTicketId(null);
     }
   }
 
@@ -309,6 +342,11 @@ export default function OperationsClient() {
           <div className="flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700" role="alert">
             <CircleAlert className="size-4" /> {error}
           </div>
+        )}
+        {notice && (
+          <output className="flex items-center gap-2 rounded-xl border border-emerald-100 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+            <CheckCircle2 className="size-4" /> {notice}
+          </output>
         )}
 
         {!dashboard && !error ? (
@@ -616,7 +654,8 @@ export default function OperationsClient() {
                         <TableHead>结果</TableHead>
                         <TableHead>客户评价</TableHead>
                         <TableHead>检查项</TableHead>
-                        <TableHead className="pr-4">解决时间</TableHead>
+                        <TableHead>解决时间</TableHead>
+                        <TableHead className="pr-4">测试操作</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
@@ -672,8 +711,20 @@ export default function OperationsClient() {
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="pr-4 text-xs text-muted-foreground">
+                            <TableCell className="text-xs text-muted-foreground">
                               {new Date(item.resolved_at).toLocaleString('zh-CN')}
+                            </TableCell>
+                            <TableCell className="pr-4">
+                              <Button
+                                aria-label={`清除测试数据 ${item.ticket_number}`}
+                                disabled={Boolean(resettingTicketId)}
+                                onClick={() => void resetCompletedTicket(item.ticket_id, item.ticket_number)}
+                                size="xs"
+                                variant="outline"
+                              >
+                                {resettingTicketId === item.ticket_id && <Loader2 className="animate-spin" />}
+                                清除并重测
+                              </Button>
                             </TableCell>
                           </TableRow>
                         );

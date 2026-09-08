@@ -18,7 +18,7 @@ def test_start_script_is_docker_only_and_path_safe() -> None:
         "docker compose ps",
         "docker compose ps --status running --services",
         'docker compose ps --format "{{.Service}} {{.Health}}"',
-        'start "" "http://localhost:3000/staff/channel"',
+        'start "" "http://localhost:13000/staff/channel"',
         "docker compose logs --tail=100 postgres api web",
     ):
         assert fragment in START

@@ -87,7 +87,7 @@ try {
         throw '本地 DeepSeek 部署验收未通过。'
     }
 
-    Write-Host 'DeepSeek 模型模式已部署并通过验收：http://127.0.0.1:3000/'
+    Write-Host 'DeepSeek 模型模式已部署并通过验收：http://127.0.0.1:13000/'
 }
 finally {
     $apiKey = $null

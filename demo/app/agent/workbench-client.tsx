@@ -43,6 +43,7 @@ import {
   listAgentTickets,
   rejectAgentRefund,
   resolveAgentTicket,
+  resetDemoDataAfterCompletedTicket,
   sendAgentTicketMessage,
   streamAgentTickets,
   withdrawAgentRefund,
@@ -290,6 +291,28 @@ export default function AgentWorkbenchClient() {
     }
   }
 
+  async function resetAfterCompletion() {
+    if (!selected || selected.work_state !== 'RESOLVED' || busy) return;
+    const confirmed = window.confirm(
+      '确定清除本次演示产生的工单、退款和会话数据吗？清除后订单可以重新测试。',
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await resetDemoDataAfterCompletedTicket(selected.id, 'agent');
+      await load();
+      setSelectedId('');
+      setFilter('ACTIVE');
+      setNotice(`已清除 ${result.ticket_number} 的演示数据，订单 ${result.order_number} 可重新测试`);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '清除演示数据失败');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function decideRefund(action: 'APPROVE' | 'REJECT' | 'WITHDRAW') {
     const refund = selected?.refund;
     if (
@@ -507,6 +530,7 @@ export default function AgentWorkbenchClient() {
               onAddNote={addNote}
               onSendReply={sendReply}
               onResolve={resolveTicket}
+              onResetAfterCompletion={resetAfterCompletion}
               refundDecisionReason={refundDecisionReason}
               onRefundDecisionReasonChange={setRefundDecisionReason}
               onRefundDecision={(action) => decideRefund(action)}
@@ -696,6 +720,7 @@ function TicketWorkspace({
   onAddNote,
   onSendReply,
   onResolve,
+  onResetAfterCompletion,
   refundDecisionReason,
   onRefundDecisionReasonChange,
   onRefundDecision,
@@ -713,6 +738,7 @@ function TicketWorkspace({
   onAddNote: () => Promise<void>;
   onSendReply: () => Promise<void>;
   onResolve: () => Promise<void>;
+  onResetAfterCompletion: () => Promise<void>;
   refundDecisionReason: string;
   onRefundDecisionReasonChange: (value: string) => void;
   onRefundDecision: (
@@ -942,6 +968,18 @@ function TicketWorkspace({
                 <p className="text-sm font-semibold">工单已完成</p>
                 <p className="mt-1 text-xs leading-5">
                   解决说明和操作人已记录在坐席时间线中；客户侧当前仅同步已解决状态。
+                </p>
+                <Button
+                  className="mt-4"
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void onResetAfterCompletion()}
+                >
+                  {busy ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                  清除测试数据并重新开始
+                </Button>
+                <p className="mt-2 text-[11px] leading-5 text-emerald-700/80">
+                  仅清除演示业务数据，操作会记录审计；生产模式不会提供此入口。
                 </p>
               </div>
             </section>

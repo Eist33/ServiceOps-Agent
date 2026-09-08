@@ -14,7 +14,7 @@ async function loginSupportAgent(page: Page, name = '沈清禾') {
     page.getByRole('heading', { name: '登录客服后台' }),
   ).toBeVisible();
   await page.getByRole('button', { name: new RegExp(name) }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客服后台' }).click();
   await expect(
     page.getByRole('heading', { name: '闲鱼实验连接' }),
@@ -138,7 +138,7 @@ test('闲鱼实验连接仅对支持坐席可见', async ({ page }) => {
     page.getByRole('heading', { name: '登录客服后台' }),
   ).toBeVisible();
   await page.getByRole('button', { name: /许知夏/ }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客服后台' }).click();
 
   await expect(
@@ -168,7 +168,7 @@ test('后台登出和重新登录会清除旧的本地连接', async ({ page }) 
   ).toBeVisible();
 
   await page.getByRole('button', { name: /陆川/ }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客服后台' }).click();
   await expect(
     page.getByRole('heading', { name: '闲鱼实验连接' }),

@@ -87,7 +87,7 @@ def verify_provider(api_base_url: str, *, reset_after: bool) -> dict[str, Any]:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--api-base-url", default="http://127.0.0.1:8000")
+    parser.add_argument("--api-base-url", default="http://127.0.0.1:18080")
     parser.add_argument("--reset-after", action="store_true")
     args = parser.parse_args()
     try:

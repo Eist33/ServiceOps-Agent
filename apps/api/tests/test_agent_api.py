@@ -5,7 +5,7 @@ from sqlalchemy import select
 from serviceops.agent.orchestrator import DeterministicSupportAgent
 from serviceops.conversations.service import create_conversation
 from serviceops.identity.service import resolve_customer
-from serviceops.models import Order, ShippingEvent, ToolInvocation
+from serviceops.models import Order, SecurityAuditEvent, ShippingEvent, ToolInvocation
 from serviceops.seed import AGENT_SESSION_TOKEN
 
 
@@ -626,3 +626,70 @@ def test_demo_reset_restores_repeatable_state(client):
     response = client.post("/api/demo/reset")
     assert response.json()["status"] == "reset"
     assert client.get("/api/orders/ORD-20260828-1042").json()["refundable_amount"] == "329.00"
+
+
+def test_support_agent_can_reset_demo_data_after_completing_a_ticket(client, db):
+    conversation_id = new_conversation(client)
+    created = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "用于验证完成后的重复测试",
+        },
+    )
+    assert created.status_code == 200
+    ticket_id = created.json()["id"]
+
+    assert client.post(f"/api/tickets/{ticket_id}/handoff").status_code == 200
+    agent_headers = {"X-Agent-Session": AGENT_SESSION_TOKEN}
+    assert client.post(f"/api/agent/tickets/{ticket_id}/accept", headers=agent_headers).status_code == 200
+    resolved = client.post(
+        f"/api/agent/tickets/{ticket_id}/resolve",
+        headers=agent_headers,
+        json={"resolution": "已完成测试处理"},
+    )
+    assert resolved.status_code == 200
+    assert resolved.json()["status"] == "RESOLVED"
+
+    reset = client.post(
+        f"/api/demo/reset-after-completion/{ticket_id}",
+        headers=agent_headers,
+    )
+    assert reset.status_code == 200
+    assert reset.json()["status"] == "reset"
+    assert reset.json()["ticket_id"] == ticket_id
+    assert client.get("/api/orders/ORD-20260828-1042").json()["refundable_amount"] == "329.00"
+
+    db.expire_all()
+    audit = db.scalar(
+        select(SecurityAuditEvent).where(
+            SecurityAuditEvent.event_type == "DEMO_STATE_RESET"
+        )
+    )
+    assert audit is not None
+    assert audit.principal_type == "OPERATOR"
+
+
+def test_demo_reset_after_completion_requires_staff_and_completed_ticket(client):
+    denied = client.post("/api/demo/reset-after-completion/not-a-ticket")
+    assert denied.status_code == 403
+
+    conversation_id = new_conversation(client)
+    created = client.post(
+        "/api/tickets",
+        json={
+            "conversation_id": conversation_id,
+            "order_number": "ORD-20260828-1042",
+            "ticket_type": "SHIPPING",
+            "reason": "未完成工单不能重置",
+        },
+    )
+    ticket_id = created.json()["id"]
+    response = client.post(
+        f"/api/demo/reset-after-completion/{ticket_id}",
+        headers={"X-Agent-Session": AGENT_SESSION_TOKEN},
+    )
+    assert response.status_code == 409
+    assert response.json()["error"]["code"] == "DEMO_RESET_REQUIRES_COMPLETED_TICKET"

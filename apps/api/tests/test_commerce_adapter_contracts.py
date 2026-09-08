@@ -35,7 +35,7 @@ from serviceops.integrations.commerce import (
 def login(client, login_name: str) -> str:
     response = client.post(
         "/api/auth/login",
-        json={"login_name": login_name, "password": "serviceops"},
+        json={"login_name": login_name, "password": "test-password"},
     )
     assert response.status_code == 200
     return response.json()["access_token"]

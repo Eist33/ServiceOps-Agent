@@ -36,8 +36,8 @@ for %%S in (postgres api web) do (
 if "%SERVICE_HEALTH_FAILED%"=="1" goto :service_health_error
 
 echo [ServiceOps] SUCCESS / 成功
-echo [ServiceOps] Staff channel: http://localhost:3000/staff/channel
-start "" "http://localhost:3000/staff/channel"
+echo [ServiceOps] Staff channel: http://localhost:13000/staff/channel
+start "" "http://localhost:13000/staff/channel"
 exit /b 0
 
 :project_error

@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 database_path = Path(tempfile.gettempdir()) / "serviceops-agent-tests.db"
 os.environ["DATABASE_URL"] = f"sqlite:///{database_path.as_posix()}"
 os.environ["AGENT_MODE"] = "deterministic"
+os.environ["DEMO_LOGIN_PASSWORD"] = "test-password"
 
 from serviceops.database import Base, engine  # noqa: E402
 from serviceops.main import create_app  # noqa: E402

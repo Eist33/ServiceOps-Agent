@@ -78,6 +78,14 @@ class AuthLoginResponse(BaseModel):
     principal: AuthPrincipalResponse
 
 
+class DemoResetResponse(BaseModel):
+    status: Literal["reset"]
+    ticket_id: str
+    ticket_number: str
+    order_number: str
+    operator_name: str
+
+
 class ConversationCreateResponse(BaseModel):
     id: str
     customer_name: str

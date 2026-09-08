@@ -41,6 +41,7 @@ export default defineConfig({
             DATABASE_URL: `sqlite:///${databasePath}`,
             AGENT_MODE: 'deterministic',
             WEB_ORIGIN: webBaseUrl,
+            DEMO_LOGIN_PASSWORD: 'test-password',
           },
         },
         {

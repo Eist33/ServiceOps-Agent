@@ -11,7 +11,7 @@ async function sendNaturalLanguage(page: Page, content: string) {
 async function loginCustomer(page: Page, name = '林沐') {
   await expect(page.getByRole('heading', { name: '登录客户服务' })).toBeVisible();
   await page.getByRole('button', { name: new RegExp(name) }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客户服务' }).click();
 }
 
@@ -35,7 +35,7 @@ async function loginStaff(page: Page, name: '沈清禾' | '陆川' | '许知夏'
   await page.reload();
   await expect(page.getByRole('heading', { name: '登录客服后台' })).toBeVisible();
   await page.getByRole('button', { name: new RegExp(name) }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客服后台' }).click();
 }
 

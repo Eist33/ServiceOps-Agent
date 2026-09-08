@@ -332,3 +332,16 @@ def current_operations_operator(
     if operator.role not in {"KNOWLEDGE_MANAGER", "OPERATIONS_MANAGER"}:
         raise ForbiddenError("当前账号没有运营看板权限")
     return operator
+
+
+def current_demo_reset_operator(
+    operator: Operator = Depends(current_operator),
+) -> Operator:
+    """Allow demo reset only to staff who can operate the test workflow."""
+    if operator.role not in {
+        "SUPPORT_AGENT",
+        "KNOWLEDGE_MANAGER",
+        "OPERATIONS_MANAGER",
+    }:
+        raise ForbiddenError("当前账号没有清除演示测试数据的权限")
+    return operator

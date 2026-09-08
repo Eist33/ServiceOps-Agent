@@ -14,7 +14,7 @@ async function loginSupportAgent(page: Page) {
     page.getByRole('heading', { name: '登录客服后台' }),
   ).toBeVisible();
   await page.getByRole('button', { name: /沈清禾/ }).click();
-  await page.getByLabel('开发环境密码').fill('serviceops');
+  await page.getByLabel('开发环境密码').fill(process.env.DEMO_LOGIN_PASSWORD ?? 'test-password');
   await page.getByRole('button', { name: '登录客服后台' }).click();
   await expect(
     page.getByRole('heading', { name: '闲鱼实验连接' }),

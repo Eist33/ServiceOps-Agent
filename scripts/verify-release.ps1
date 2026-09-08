@@ -45,10 +45,10 @@ try {
     Assert-Succeeded -Step 'Agent orchestration evaluation gate' -ExitCode $LASTEXITCODE
 
     foreach ($url in @(
-        'http://127.0.0.1:3000/',
-        'http://127.0.0.1:3000/agent',
-        'http://127.0.0.1:3000/knowledge',
-        'http://127.0.0.1:3000/operations'
+        'http://127.0.0.1:13000/',
+        'http://127.0.0.1:13000/agent',
+        'http://127.0.0.1:13000/knowledge',
+        'http://127.0.0.1:13000/operations'
     )) {
         $response = Invoke-WebRequest -UseBasicParsing -Uri $url
         if ($response.StatusCode -ne 200) {
@@ -56,7 +56,7 @@ try {
         }
     }
 
-    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:8000/health'
+    $health = Invoke-RestMethod -Uri 'http://127.0.0.1:18080/health'
     if ($health.status -ne 'ok') {
         throw 'API health check failed.'
     }
@@ -78,7 +78,7 @@ try {
 
     $reset = Invoke-RestMethod `
         -Method Post `
-        -Uri 'http://127.0.0.1:8000/api/demo/reset' `
+        -Uri 'http://127.0.0.1:18080/api/demo/reset' `
         -Headers @{ 'X-Demo-Session' = 'demo-linmu-session' }
     if ($reset.status -ne 'reset') {
         throw 'Demo reset verification failed.'

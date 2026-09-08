@@ -3,12 +3,12 @@ import test from 'node:test';
 
 import { clientId } from './client-id.ts';
 
-test('clientId uses a native UUID when the browser exposes it', () => {
+void test('clientId uses a native UUID when the browser exposes it', () => {
   const value = clientId('native');
   assert.match(value, /^native-[0-9a-f-]{36}$/);
 });
 
-test('clientId has a local fallback for insecure Docker browser origins', () => {
+void test('clientId has a local fallback for insecure Docker browser origins', () => {
   const originalCrypto = globalThis.crypto;
   Object.defineProperty(globalThis, 'crypto', {
     configurable: true,

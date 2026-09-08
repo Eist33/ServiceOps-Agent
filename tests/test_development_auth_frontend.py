@@ -31,6 +31,9 @@ def test_login_and_staff_navigation_are_role_aware() -> None:
 
     for label in ("登录客户服务", "登录客服后台", "开发环境密码", "切换账号"):
         assert label in gate
+    assert "useState('')" in gate
+    assert "value={password}" in gate
+    assert "本地默认密码为 serviceops" not in gate
     assert "allowedRoles" in gate
     assert "area.roles.includes(staff.principal.role)" in navigation
     assert "退出客服后台" in navigation

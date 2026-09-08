@@ -37,8 +37,8 @@ for %%S in (postgres api web) do (
 )
 if "%SERVICE_HEALTH_FAILED%"=="1" goto :service_health_error
 
-echo Harbor Support is running at http://127.0.0.1:3000/
-if "%OPEN_BROWSER%"=="1" start "" http://127.0.0.1:3000/
+echo Harbor Support is running at http://127.0.0.1:13000/
+if "%OPEN_BROWSER%"=="1" start "" http://127.0.0.1:13000/
 exit /b 0
 
 :project_error

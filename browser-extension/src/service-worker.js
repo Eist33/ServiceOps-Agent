@@ -20,7 +20,7 @@ import {
 
 const STATE_KEY_PREFIX = 'serviceops-xianyu-bridge:tab:';
 const PENDING_SOURCE_TAB_KEY = 'serviceops-xianyu-bridge:pending-source-tab';
-const WORKBENCH_URL = 'http://localhost:3000/staff/channel';
+const WORKBENCH_URL = 'http://localhost:13000/staff/channel';
 const LOCAL_WORKBENCH_HOSTS = new Set(['localhost', '127.0.0.1']);
 const memoryState = new Map();
 

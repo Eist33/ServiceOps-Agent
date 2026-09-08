@@ -26,6 +26,7 @@ from serviceops.identity.service import (
     AuthenticatedPrincipal,
     current_authenticated_principal,
     current_customer,
+    current_demo_reset_operator,
     current_knowledge_manager,
     current_operations_operator,
     current_operator,
@@ -86,6 +87,7 @@ from serviceops.operations.service import (
     operations_dashboard,
     operations_quality_report,
     operations_ticket_report,
+    reset_demo_state_after_completed_ticket,
 )
 from serviceops.operations.streaming import stream_operations_alerts
 from serviceops.orders.service import get_order, list_recent_orders
@@ -112,6 +114,7 @@ from serviceops.shared.schemas import (
     ConversationCreateResponse,
     CustomerFeedbackRequest,
     CustomerFeedbackResponse,
+    DemoResetResponse,
     DevelopmentAccountResponse,
     KnowledgeArticleResponse,
     KnowledgeChunkResponse,
@@ -1000,6 +1003,17 @@ def create_app() -> FastAPI:
         ):
             reset_demo_state(db)
             return {"status": "reset"}
+
+        @app.post(
+            "/api/demo/reset-after-completion/{ticket_id}",
+            response_model=DemoResetResponse,
+        )
+        def reset_demo_after_completion(
+            ticket_id: str,
+            db: Session = Depends(get_db),
+            operator: Operator = Depends(current_demo_reset_operator),
+        ):
+            return reset_demo_state_after_completed_ticket(db, operator, ticket_id)
 
     @app.post("/api/conversations", response_model=ConversationCreateResponse)
     def start_conversation(

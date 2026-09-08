@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     model_max_turns: int = 8
     demo_mode_enabled: bool = True
     api_docs_enabled: bool = True
-    demo_login_password: str = "serviceops"
+    # Demo credentials are injected by the deployment environment. Keeping the
+    # default empty prevents a usable password from being baked into source or
+    # an image when the demo stack is moved to another server.
+    demo_login_password: str = ""
     auth_session_hours: int = 12
     # Legacy OpenAI-specific settings remain supported during migration.
     openai_model: str = "gpt-5.4-mini"
@@ -69,6 +72,8 @@ class Settings(BaseSettings):
             errors.append("API_DOCS_ENABLED must be false")
         if self.sensitive_tracing_enabled:
             errors.append("SENSITIVE_TRACING_ENABLED must be false")
+        if self.demo_mode_enabled and not self.demo_login_password.strip():
+            errors.append("DEMO_LOGIN_PASSWORD must be set when demo mode is enabled")
         if self.database_url.lower().startswith("sqlite"):
             errors.append("DATABASE_URL must use PostgreSQL")
         if "serviceops:serviceops@" in self.database_url.lower():

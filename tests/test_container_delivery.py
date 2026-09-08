@@ -60,8 +60,8 @@ def test_one_click_start_waits_for_docker_and_checks_both_services() -> None:
 
     assert "docker info" in script
     assert "docker compose up -d --wait" in script
-    assert "http://127.0.0.1:8000/health" in script
-    assert "http://127.0.0.1:3000/" in script
+    assert "http://127.0.0.1:18080/health" in script
+    assert "http://127.0.0.1:13000/" in script
     assert "[switch]$NoBrowser" in script
 
 
@@ -74,7 +74,7 @@ def test_release_verification_covers_cold_start_migration_routes_and_reset() -> 
     assert "docker compose stop" in script
     assert "docker compose up -d --build --wait" in script
     assert "docker compose exec -T api alembic current" in script
-    for route in ("3000/", "3000/agent", "3000/knowledge", "3000/operations"):
+    for route in ("13000/", "13000/agent", "13000/knowledge", "13000/operations"):
         assert route in script
     assert "Join-Path $PSScriptRoot 'verify.ps1'" in script
     assert "/api/demo/reset" in script
@@ -84,7 +84,7 @@ def test_compose_allows_both_local_browser_origins() -> None:
     compose = (ROOT / "docker-compose.yml").read_text(encoding="utf-8")
 
     assert (
-        "WEB_ORIGIN: http://localhost:3000,http://127.0.0.1:3000" in compose
+        "WEB_ORIGIN: http://localhost:13000,http://127.0.0.1:13000" in compose
     )
 
 
@@ -102,7 +102,7 @@ def test_non_powershell_start_checks_docker_api_and_web() -> None:
     assert "docker compose up -d --build --wait" in script
     assert 'docker compose ps --format "{{.Service}} {{.Health}}"' in script
     assert "postgres api web" in script
-    assert "http://127.0.0.1:3000/" in script
+    assert "http://127.0.0.1:13000/" in script
     assert "--no-browser" in script
     assert "curl" not in script.lower()
     assert "powershell" not in script.lower()

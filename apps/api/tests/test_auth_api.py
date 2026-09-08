@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from serviceops.models import AuthSession, SecurityAuditEvent
 
 
-def login(client, login_name: str, password: str = "serviceops") -> dict:
+def login(client, login_name: str, password: str = "test-password") -> dict:
     response = client.post(
         "/api/auth/login",
         json={"login_name": login_name, "password": password},

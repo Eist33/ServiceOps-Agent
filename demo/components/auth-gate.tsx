@@ -64,7 +64,7 @@ function LoginSurface({ area }: { area: AuthArea }) {
   const { saveSession } = useAuth();
   const [accounts, setAccounts] = useState<DevelopmentAccountData[]>([]);
   const [selected, setSelected] = useState('');
-  const [password, setPassword] = useState('serviceops');
+  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -178,7 +178,7 @@ function LoginSurface({ area }: { area: AuthArea }) {
                 value={password}
               />
               <p className="text-xs text-muted-foreground">
-                本地默认密码为 serviceops，可通过环境配置修改。
+                密码由部署环境配置，请手动输入；页面不会预填或显示密码。
               </p>
             </div>
             {selectedAccount && (

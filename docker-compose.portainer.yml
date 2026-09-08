@@ -17,12 +17,12 @@ services:
       - serviceops-postgres:/var/lib/postgresql/data
 
   api:
-    build: ./apps/api
+    image: serviceops-api:20260908-reset
     restart: unless-stopped
     environment:
-      APP_ENV: development
+      APP_ENV: demo
       DATABASE_URL: postgresql+psycopg://serviceops:serviceops@postgres:5432/serviceops
-      WEB_ORIGIN: http://localhost:13000,http://127.0.0.1:13000
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://101.35.149.171:13000}
       AGENT_MODE: ${AGENT_MODE:-deterministic}
       MODEL_PROVIDER: ${MODEL_PROVIDER:-deepseek}
       MODEL_API_STYLE: ${MODEL_API_STYLE:-responses}
@@ -40,7 +40,7 @@ services:
       MODEL_MAX_TURNS: ${MODEL_MAX_TURNS:-8}
       DEMO_MODE_ENABLED: "true"
       API_DOCS_ENABLED: "true"
-      DEMO_LOGIN_PASSWORD: ${DEMO_LOGIN_PASSWORD:?Set DEMO_LOGIN_PASSWORD in .env before starting the demo}
+      DEMO_LOGIN_PASSWORD: ${DEMO_LOGIN_PASSWORD:?Set DEMO_LOGIN_PASSWORD in Portainer Stack environment}
       AUTH_SESSION_HOURS: ${AUTH_SESSION_HOURS:-12}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -57,10 +57,7 @@ services:
       - "18080:8000"
 
   web:
-    build:
-      context: ./demo
-      args:
-        NEXT_PUBLIC_API_URL: http://localhost:18080
+    image: serviceops-web:20260908-reset
     restart: unless-stopped
     depends_on:
       api:

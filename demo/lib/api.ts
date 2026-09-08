@@ -10,6 +10,14 @@ export type DevelopmentAccountData = {
   role: string;
 };
 
+export type DemoResetData = {
+  status: 'reset';
+  ticket_id: string;
+  ticket_number: string;
+  order_number: string;
+  operator_name: string;
+};
+
 export type AgentEvent = {
   type:
     | 'model_start'
@@ -794,6 +802,17 @@ export const resolveAgentTicket = (
       body: JSON.stringify({ resolution }),
     },
   );
+
+export const resetDemoDataAfterCompletedTicket = (
+  ticketId: string,
+  scope: 'agent' | 'operations',
+) => {
+  const request = scope === 'agent' ? agentRequest : opsRequest;
+  return request<DemoResetData>(
+    `/api/demo/reset-after-completion/${ticketId}`,
+    { method: 'POST' },
+  );
+};
 
 export const approveAgentRefund = (refundId: string, key: string) =>
   agentRequest<RefundData>(

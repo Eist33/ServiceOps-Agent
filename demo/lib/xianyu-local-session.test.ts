@@ -45,7 +45,7 @@ void test('local connection output contains only fixed-page metadata', () => {
   assert.equal(connection.display_identifier, '本地模拟账号 A');
   assert.equal(connection.source_page_version, XIANYU_LOCAL_PAGE_VERSION);
   assert.equal(connection.status, 'CONNECTED');
-  assert.match(connection.connection_id, /^[0-9a-f-]{36}$/);
+  assert.match(connection.connection_id, /^connection-[0-9a-f-]{36}$/);
 
   const serialized = JSON.stringify(connection).toLowerCase();
   for (const forbidden of [

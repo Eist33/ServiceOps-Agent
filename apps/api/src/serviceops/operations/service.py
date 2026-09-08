@@ -17,11 +17,13 @@ from serviceops.models import (
     Order,
     RefundRequest,
     RefundStatus,
+    SecurityAuditEvent,
     Ticket,
     TicketEvent,
     TicketStatus,
     ToolInvocation,
 )
+from serviceops.seed import reset_demo_state
 from serviceops.shared.errors import ConflictError, NotFoundError, ValidationError
 from serviceops.shared.schemas import (
     OpsAlertAcknowledgementResponse,
@@ -44,6 +46,45 @@ ALERT_SEVERITY_ORDER = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2}
 ALERT_TYPES = {"SLA_BREACHED", "SLA_DUE_SOON", "HANDOFF_QUEUED"}
 QUALITY_FIRST_REPLY_MINUTES = 30
 MODEL_METRICS_WINDOW_HOURS = 24
+
+
+def reset_demo_state_after_completed_ticket(
+    db: Session,
+    operator: Operator,
+    ticket_id: str,
+):
+    """Reset mutable demo data only after an authorized operator completed a ticket."""
+    ticket = db.get(Ticket, ticket_id)
+    if ticket is None:
+        raise NotFoundError("工单不存在")
+    if ticket.status != TicketStatus.RESOLVED.value or ticket.handoff_status != HandoffStatus.COMPLETED.value:
+        raise ConflictError(
+            "DEMO_RESET_REQUIRES_COMPLETED_TICKET",
+            "只有已完成的人工工单才能清除演示测试数据",
+        )
+    order = db.get(Order, ticket.order_id)
+    if order is None:
+        raise NotFoundError("工单关联的订单不存在")
+
+    ticket_number = ticket.ticket_number
+    order_number = order.order_number
+    reset_demo_state(db)
+    db.add(
+        SecurityAuditEvent(
+            event_type="DEMO_STATE_RESET",
+            outcome="SUCCEEDED",
+            principal_type="OPERATOR",
+            principal_id=operator.id,
+        )
+    )
+    db.commit()
+    return {
+        "status": "reset",
+        "ticket_id": ticket_id,
+        "ticket_number": ticket_number,
+        "order_number": order_number,
+        "operator_name": operator.name,
+    }
 
 
 def _aware(value: datetime) -> datetime:
