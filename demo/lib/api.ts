@@ -269,6 +269,31 @@ export type OperationsDashboardData = {
   }>;
 };
 
+export type OperationsOrderItemData = {
+  id: string;
+  order_number: string;
+  customer_name: string;
+  product_name: string;
+  paid_amount: string;
+  refundable_amount: string;
+  status: string;
+  initial_status: string;
+  ordered_at: string;
+  updated_at: string;
+};
+
+export type OperationsOrderReportData = {
+  generated_at: string;
+  total: number;
+  items: OperationsOrderItemData[];
+};
+
+export type OperationsOrderResetData = {
+  status: 'reset';
+  order: OperationsOrderItemData;
+  operator_name: string;
+};
+
 export type CommerceIntegrationStatusData = {
   provider: 'TAOBAO' | 'XIAOHONGSHU' | 'XIANYU';
   state: 'NOT_CONFIGURED' | 'READY' | 'DEGRADED';
@@ -660,6 +685,14 @@ export const deactivateKnowledgeArticle = (articleId: string) =>
 
 export const getOperationsDashboard = () =>
   opsRequest<OperationsDashboardData>('/api/ops/dashboard');
+
+export const getOperationsOrders = () =>
+  opsRequest<OperationsOrderReportData>('/api/ops/orders');
+
+export const resetOperationsOrder = (orderId: string) =>
+  opsRequest<OperationsOrderResetData>(`/api/ops/orders/${orderId}/reset`, {
+    method: 'POST',
+  });
 
 export const getCommerceIntegrationStatuses = () =>
   opsRequest<CommerceIntegrationStatusData[]>('/api/ops/integrations/commerce');

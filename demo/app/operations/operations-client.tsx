@@ -17,6 +17,7 @@ import {
   Headphones,
   Loader2,
   ReceiptText,
+  RefreshCw,
   Star,
   TicketCheck,
   TriangleAlert,
@@ -60,13 +61,16 @@ import {
   type CommerceIntegrationStatusData,
   type OperationsDashboardData,
   type OperationsAlertSnapshotData,
+  type OperationsOrderReportData,
   type OperationsQualityReportData,
   type OperationsTicketReportData,
   acknowledgeOperationsAlert,
   getCommerceIntegrationStatuses,
   getOperationsDashboard,
+  getOperationsOrders,
   getOperationsQualityReport,
   getOperationsTicketReport,
+  resetOperationsOrder,
   resetDemoDataAfterCompletedTicket,
   streamOperationsAlerts,
 } from '@/lib/api';
@@ -79,6 +83,11 @@ const activityConfig = {
 
 export default function OperationsClient() {
   const [dashboard, setDashboard] = useState<OperationsDashboardData | null>(null);
+  const [orderReport, setOrderReport] =
+    useState<OperationsOrderReportData | null>(null);
+  const [orderLoading, setOrderLoading] = useState(true);
+  const [orderError, setOrderError] = useState('');
+  const [resettingOrderId, setResettingOrderId] = useState<string | null>(null);
   const [integrationStatuses, setIntegrationStatuses] =
     useState<CommerceIntegrationStatusData[] | null>(null);
   const [integrationError, setIntegrationError] = useState('');
@@ -116,6 +125,28 @@ export default function OperationsClient() {
       }
     }
     void initialize();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadOrders() {
+      setOrderLoading(true);
+      setOrderError('');
+      try {
+        const data = await getOperationsOrders();
+        if (!cancelled) setOrderReport(data);
+      } catch (caught) {
+        if (!cancelled) {
+          setOrderError(caught instanceof Error ? caught.message : '订单数据加载失败');
+        }
+      } finally {
+        if (!cancelled) setOrderLoading(false);
+      }
+    }
+    void loadOrders();
     return () => {
       cancelled = true;
     };
@@ -230,6 +261,38 @@ export default function OperationsClient() {
       setError(caught instanceof Error ? caught.message : '清除演示数据失败');
     } finally {
       setResettingTicketId(null);
+    }
+  }
+
+  async function resetOrder(order: OperationsOrderReportData['items'][number]) {
+    if (resettingOrderId) return;
+    const confirmed = window.confirm(
+      `确定将订单 ${order.order_number} 恢复为初始演示状态吗？这会恢复订单状态和可退款金额，不删除工单或退款审计记录。`,
+    );
+    if (!confirmed) return;
+    setResettingOrderId(order.id);
+    setError('');
+    setNotice('');
+    try {
+      const result = await resetOperationsOrder(order.id);
+      setOrderReport((current) =>
+        current
+          ? {
+              ...current,
+              generated_at: new Date().toISOString(),
+              items: current.items.map((item) =>
+                item.id === result.order.id ? result.order : item,
+              ),
+            }
+          : current,
+      );
+      setNotice(
+        `订单 ${result.order.order_number} 已恢复为${orderStatusLabel(result.order.status)}，可退款金额为 ¥${result.order.refundable_amount}`,
+      );
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : '重置订单状态失败');
+    } finally {
+      setResettingOrderId(null);
     }
   }
 
@@ -385,6 +448,91 @@ export default function OperationsClient() {
                 tone="bg-emerald-50 text-emerald-700"
               />
             </section>
+
+            <Card aria-label="订单管理" className="overflow-hidden">
+              <CardHeader className="border-b bg-[linear-gradient(115deg,#f0f9ff_0%,#ffffff_52%,#f0fdf4_100%)]">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <ReceiptText className="size-5 text-primary" /> 订单管理
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      查看全部演示订单；重置仅恢复选中订单的初始状态和可退款金额，不删除工单或退款审计记录
+                    </CardDescription>
+                  </div>
+                  {orderReport && (
+                    <Badge variant="secondary">全部 {orderReport.total} 笔</Badge>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent className="px-0">
+                {orderLoading ? (
+                  <div className="flex justify-center py-10 text-sm text-muted-foreground">
+                    <Loader2 className="mr-2 size-4 animate-spin" /> 正在读取订单…
+                  </div>
+                ) : orderError ? (
+                  <div className="flex items-center gap-2 px-4 py-8 text-sm text-red-700" role="alert">
+                    <CircleAlert className="size-4" /> {orderError}
+                  </div>
+                ) : orderReport?.items.length ? (
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="pl-4">订单</TableHead>
+                        <TableHead>客户</TableHead>
+                        <TableHead>商品</TableHead>
+                        <TableHead>订单状态</TableHead>
+                        <TableHead>实付 / 可退</TableHead>
+                        <TableHead>下单时间</TableHead>
+                        <TableHead className="pr-4">操作</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {orderReport.items.map((order) => (
+                        <TableRow key={order.id}>
+                          <TableCell className="pl-4">
+                            <p className="font-medium">{order.order_number}</p>
+                            <p className="mt-1 text-[11px] text-muted-foreground">
+                              初始：{orderStatusLabel(order.initial_status)}
+                            </p>
+                          </TableCell>
+                          <TableCell>{order.customer_name}</TableCell>
+                          <TableCell>{order.product_name}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{orderStatusLabel(order.status)}</Badge>
+                          </TableCell>
+                          <TableCell className="text-xs tabular-nums">
+                            <p>¥{order.paid_amount}</p>
+                            <p className="mt-1 text-muted-foreground">可退 ¥{order.refundable_amount}</p>
+                          </TableCell>
+                          <TableCell className="text-xs text-muted-foreground">
+                            {new Date(order.ordered_at).toLocaleString('zh-CN')}
+                          </TableCell>
+                          <TableCell className="pr-4">
+                            <Button
+                              aria-label={`重置订单状态 ${order.order_number}`}
+                              disabled={Boolean(resettingOrderId)}
+                              onClick={() => void resetOrder(order)}
+                              size="xs"
+                              variant="outline"
+                            >
+                              {resettingOrderId === order.id ? (
+                                <Loader2 className="animate-spin" />
+                              ) : (
+                                <RefreshCw />
+                              )}
+                              重置状态
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                ) : (
+                  <EmptyState icon={ReceiptText} text="当前没有订单数据。" />
+                )}
+              </CardContent>
+            </Card>
 
             <Card aria-label="电商平台接入状态">
               <CardHeader>
@@ -1143,6 +1291,18 @@ function QualityBadge({ grade }: { grade: 'EXCELLENT' | 'QUALIFIED' | 'ATTENTION
       ? 'bg-sky-50 text-sky-700'
       : 'bg-amber-50 text-amber-700';
   return <Badge className={tone} variant="secondary">{label}</Badge>;
+}
+
+function orderStatusLabel(status: string) {
+  return (
+    {
+      DELIVERED: '已送达',
+      SHIPPED: '已发货',
+      IN_TRANSIT: '运输中',
+      REFUNDED: '已退款',
+      CANCELLED: '已取消',
+    }[status] ?? status
+  );
 }
 
 function slaText(status: string) {

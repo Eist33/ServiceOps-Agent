@@ -85,9 +85,11 @@ from serviceops.operations.service import (
     acknowledge_operations_alert,
     operations_alerts,
     operations_dashboard,
+    operations_orders,
     operations_quality_report,
     operations_ticket_report,
     reset_demo_state_after_completed_ticket,
+    reset_operations_order,
 )
 from serviceops.operations.streaming import stream_operations_alerts
 from serviceops.orders.service import get_order, list_recent_orders
@@ -141,6 +143,8 @@ from serviceops.shared.schemas import (
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
+    OpsOrderReportResponse,
+    OpsOrderResetResponse,
     OpsQualityReportResponse,
     OpsTicketReportResponse,
     OrderResponse,
@@ -872,6 +876,26 @@ def create_app() -> FastAPI:
         _operator: Operator = Depends(current_operations_operator),
     ):
         return operations_dashboard(db)
+
+    @app.get("/api/ops/orders", response_model=OpsOrderReportResponse)
+    def ops_orders(
+        db: Session = Depends(get_db),
+        _operator: Operator = Depends(current_operations_operator),
+    ):
+        return operations_orders(db)
+
+    if settings.demo_mode_enabled:
+
+        @app.post(
+            "/api/ops/orders/{order_id}/reset",
+            response_model=OpsOrderResetResponse,
+        )
+        def reset_ops_order(
+            order_id: str,
+            db: Session = Depends(get_db),
+            operator: Operator = Depends(current_operations_operator),
+        ):
+            return reset_operations_order(db, operator, order_id)
 
     @app.get(
         "/api/ops/integrations/commerce",

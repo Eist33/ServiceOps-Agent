@@ -23,12 +23,13 @@ from serviceops.models import (
     TicketStatus,
     ToolInvocation,
 )
-from serviceops.seed import reset_demo_state
+from serviceops.seed import DEMO_INITIAL_ORDER_STATUSES, reset_demo_state
 from serviceops.shared.errors import ConflictError, NotFoundError, ValidationError
 from serviceops.shared.schemas import (
     OpsAlertAcknowledgementResponse,
     OpsAlertSnapshotResponse,
     OpsDashboardResponse,
+    OpsOrderReportResponse,
     OpsQualityReportResponse,
     OpsTicketReportResponse,
 )
@@ -83,6 +84,72 @@ def reset_demo_state_after_completed_ticket(
         "ticket_id": ticket_id,
         "ticket_number": ticket_number,
         "order_number": order_number,
+        "operator_name": operator.name,
+    }
+
+
+def _ops_order_item(order: Order, customer_name: str) -> dict:
+    return {
+        "id": order.id,
+        "order_number": order.order_number,
+        "customer_name": customer_name,
+        "product_name": order.product_name,
+        "paid_amount": order.paid_amount,
+        "refundable_amount": order.refundable_amount,
+        "status": order.status,
+        "initial_status": DEMO_INITIAL_ORDER_STATUSES.get(order.order_number, order.status),
+        "ordered_at": order.ordered_at,
+        "updated_at": order.updated_at,
+    }
+
+
+def operations_orders(db: Session) -> OpsOrderReportResponse:
+    rows = db.execute(
+        select(Order, Customer.name)
+        .join(Customer, Customer.id == Order.customer_id)
+        .order_by(Order.ordered_at.desc(), Order.order_number.desc())
+    ).all()
+    return OpsOrderReportResponse(
+        generated_at=datetime.now(UTC),
+        total=len(rows),
+        items=[_ops_order_item(order, customer_name) for order, customer_name in rows],
+    )
+
+
+def reset_operations_order(
+    db: Session,
+    operator: Operator,
+    order_id: str,
+) -> dict:
+    order = db.get(Order, order_id)
+    if order is None:
+        raise NotFoundError("订单不存在")
+    initial_status = DEMO_INITIAL_ORDER_STATUSES.get(order.order_number)
+    if initial_status is None:
+        raise ConflictError(
+            "ORDER_RESET_UNSUPPORTED",
+            "该订单没有固定的演示初始状态，不能从运营页面重置",
+        )
+    customer = db.get(Customer, order.customer_id)
+    if customer is None:
+        raise NotFoundError("订单关联的客户不存在")
+
+    order.status = initial_status
+    order.refundable_amount = order.paid_amount
+    order.updated_at = datetime.now(UTC)
+    db.add(
+        SecurityAuditEvent(
+            event_type="DEMO_ORDER_STATE_RESET",
+            outcome="SUCCEEDED",
+            principal_type="OPERATOR",
+            principal_id=operator.id,
+        )
+    )
+    db.commit()
+    db.refresh(order)
+    return {
+        "status": "reset",
+        "order": _ops_order_item(order, customer.name),
         "operator_name": operator.name,
     }
 

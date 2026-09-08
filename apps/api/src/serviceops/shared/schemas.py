@@ -549,6 +549,31 @@ class OpsDashboardResponse(BaseModel):
     recent_model_invocations: list[dict[str, Any]]
 
 
+class OpsOrderItem(BaseModel):
+    id: str
+    order_number: str
+    customer_name: str
+    product_name: str
+    paid_amount: Decimal
+    refundable_amount: Decimal
+    status: str
+    initial_status: str
+    ordered_at: datetime
+    updated_at: datetime
+
+
+class OpsOrderReportResponse(BaseModel):
+    generated_at: datetime
+    total: int
+    items: list[OpsOrderItem]
+
+
+class OpsOrderResetResponse(BaseModel):
+    status: Literal["reset"]
+    order: OpsOrderItem
+    operator_name: str
+
+
 class OpsTicketReportResponse(BaseModel):
     generated_at: datetime
     selected_support_group: str | None

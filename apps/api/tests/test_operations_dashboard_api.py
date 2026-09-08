@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 
-from serviceops.models import ModelInvocation, OperationsAlertAcknowledgement, Ticket
+from serviceops.models import ModelInvocation, OperationsAlertAcknowledgement, Order, Ticket
 from serviceops.seed import AGENT_SESSION_TOKEN, OPS_SESSION_TOKEN
 
 OPS_HEADERS = {"X-Ops-Session": OPS_SESSION_TOKEN}
@@ -88,6 +88,46 @@ def test_empty_dashboard_reports_fixed_knowledge_and_seven_day_window(client):
         "average_customer_rating": 0.0,
         "items": [],
     }
+
+
+def test_operations_can_list_all_orders_and_reset_one_order(client, db):
+    response = client.get("/api/ops/orders", headers=OPS_HEADERS)
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["total"] == 4
+    target = next(
+        item for item in report["items"] if item["order_number"] == "ORD-20260828-1042"
+    )
+    assert target["customer_name"] == "林沐"
+    assert target["initial_status"] == "IN_TRANSIT"
+    assert target["refundable_amount"] == "329.00"
+
+    order = db.scalar(select(Order).where(Order.order_number == target["order_number"]))
+    assert order is not None
+    order.status = "REFUNDED"
+    order.refundable_amount = 0
+    db.commit()
+
+    reset = client.post(f"/api/ops/orders/{order.id}/reset", headers=OPS_HEADERS)
+
+    assert reset.status_code == 200
+    assert reset.json()["status"] == "reset"
+    assert reset.json()["order"]["status"] == "IN_TRANSIT"
+    assert reset.json()["order"]["refundable_amount"] == "329.00"
+    db.refresh(order)
+    assert order.status == "IN_TRANSIT"
+    assert str(order.refundable_amount) == "329.00"
+
+
+def test_customer_cannot_list_or_reset_operations_orders(client, db):
+    response = client.get("/api/ops/orders")
+    assert response.status_code == 403
+
+    order = db.scalar(select(Order).where(Order.order_number == "ORD-20260828-1042"))
+    assert order is not None
+    reset = client.post(f"/api/ops/orders/{order.id}/reset")
+    assert reset.status_code == 403
 
 
 def test_dashboard_aggregates_ticket_handoff_sla_and_tool_health(client):

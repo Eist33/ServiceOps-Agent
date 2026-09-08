@@ -27,6 +27,13 @@ from serviceops.models import (
     ToolInvocation,
 )
 
+DEMO_INITIAL_ORDER_STATUSES = {
+    "ORD-20260902-3188": "DELIVERED",
+    "ORD-20260831-2256": "SHIPPED",
+    "ORD-20260828-1042": "IN_TRANSIT",
+    "ORD-20260827-9001": "DELIVERED",
+}
+
 DEMO_SESSION_TOKEN = "demo-linmu-session"
 SECONDARY_SESSION_TOKEN = "demo-other-session"
 OPS_SESSION_TOKEN = "demo-knowledge-ops-session"
@@ -283,12 +290,9 @@ def reset_demo_state(db: Session) -> None:
         db.execute(delete(model))
     db.execute(delete(KnowledgeArticle))
     _add_seed_knowledge(db)
-    initial_statuses = {
-        "ORD-20260902-3188": "DELIVERED",
-        "ORD-20260831-2256": "SHIPPED",
-        "ORD-20260828-1042": "IN_TRANSIT",
-    }
-    for order in db.scalars(select(Order).where(Order.order_number.in_(initial_statuses))):
+    for order in db.scalars(
+        select(Order).where(Order.order_number.in_(DEMO_INITIAL_ORDER_STATUSES))
+    ):
         order.refundable_amount = order.paid_amount
-        order.status = initial_statuses[order.order_number]
+        order.status = DEMO_INITIAL_ORDER_STATUSES[order.order_number]
     db.commit()
