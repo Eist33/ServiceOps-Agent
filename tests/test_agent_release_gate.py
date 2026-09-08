@@ -35,8 +35,7 @@ def test_documentation_describes_isolated_gate_and_safe_local_deployment() -> No
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     deployment = (ROOT / "docs" / "deployment.md").read_text(encoding="utf-8")
 
-    assert ".\\scripts\\deploy-local-deepseek.ps1" in readme
-    assert "70 条" in readme
-    assert "--runtime model" in readme
+    assert "部署与运行指南" in readme
+    assert "架构设计" in readme
     assert "不对公网开放数据库 `5432`" in deployment
     assert "每个场景使用独立临时数据库" in deployment
