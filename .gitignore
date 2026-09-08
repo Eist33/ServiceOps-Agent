@@ -15,4 +15,4 @@ dist/
 .wrangler/
 playwright-report/
 test-results/
-
+portainer-package-*/
