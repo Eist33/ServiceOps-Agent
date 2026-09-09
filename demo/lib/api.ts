@@ -2,7 +2,6 @@ import { bearerHeaders, type AuthSessionData } from './auth-session';
 
 export const API_URL =
   process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
-export const AUTH_MODE = process.env.NEXT_PUBLIC_AUTH_MODE ?? 'development';
 
 export type DevelopmentAccountData = {
   login_name: string;
