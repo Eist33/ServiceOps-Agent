@@ -16,3 +16,4 @@ dist/
 playwright-report/
 test-results/
 portainer-package-*/
+artifacts/*.tar
