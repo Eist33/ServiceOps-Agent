@@ -16,6 +16,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  AUTH_MODE,
   type DevelopmentAccountData,
   listDevelopmentAccounts,
   loginDevelopmentAccount,
@@ -61,6 +62,14 @@ function AuthLoading() {
 }
 
 function LoginSurface({ area }: { area: AuthArea }) {
+  if (AUTH_MODE === 'external') {
+    return <ExternalAuthRequired area={area} />;
+  }
+
+  return <DevelopmentLoginSurface area={area} />;
+}
+
+function DevelopmentLoginSurface({ area }: { area: AuthArea }) {
   const { saveSession } = useAuth();
   const [accounts, setAccounts] = useState<DevelopmentAccountData[]>([]);
   const [selected, setSelected] = useState('');
@@ -204,6 +213,37 @@ function LoginSurface({ area }: { area: AuthArea }) {
               {area === 'customer' ? '登录客户服务' : '登录客服后台'}
             </Button>
           </form>
+        </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+function ExternalAuthRequired({ area }: { area: AuthArea }) {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[#f4f7f8] px-4 py-10 text-foreground">
+      <Card className="w-full max-w-lg border-slate-200 bg-white/95 shadow-xl shadow-slate-900/5">
+        <CardHeader className="space-y-4 border-b">
+          <span className="grid size-11 place-items-center rounded-2xl bg-primary text-primary-foreground">
+            <ShieldCheck className="size-5" />
+          </span>
+          <div>
+            <CardTitle className="text-xl">
+              <h1>{area === 'customer' ? '客户服务' : '客服后台'}</h1>
+            </CardTitle>
+            <CardDescription className="mt-2 text-sm leading-6">
+              当前为正式环境，开发账号和演示密码已关闭。请通过企业身份平台完成登录。
+            </CardDescription>
+          </div>
+        </CardHeader>
+        <CardContent className="pt-6">
+          <Alert>
+            <LockKeyhole />
+            <AlertTitle>正式身份认证尚未接入</AlertTitle>
+            <AlertDescription>
+              请先配置企业 SSO/OIDC 或其他受控身份提供方，再开放正式流量。此页面不会接受演示账号或共享密码。
+            </AlertDescription>
+          </Alert>
         </CardContent>
       </Card>
     </main>
